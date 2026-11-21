@@ -27,7 +27,7 @@ Hater haters[5];
 Pickup pickups[3];
 Camera3D cam;
 Sound sHit, sKill, sJump, sShoot, sReload, sDash;
-Texture2D pointsTex;
+Texture2D pointsTex, bulletTex;
 Model snakeModel;
 float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT = 0;
 float dashCd = 0, dashT = 0;
@@ -39,7 +39,6 @@ const char *bonusMsg = "+30";
 int kills = 0, wave = 1;
 bool dead = false;
 
-// map got 3x wider, so more boxes and dash has somewhere to go now
 BoundingBox map[] = {
     {{-27,0,-6},{-7.5,3,-3}}, {{7.5,0,-6},{27,3,-3}},
     {{-27,0,6},{-7.5,3,9}},   {{7.5,0,6},{27,3,9}},
@@ -58,16 +57,12 @@ BoundingBox map[] = {
     {{-24,0,0},{-18,2.2,4}},     {{18,0,-12},{24,2.2,-8}},
     {{-12,0,-21},{-7,1.2,-15}},  {{7,0,15},{12,1.2,21}}
 };
-const int NMAP = sizeof(map) / sizeof(map[0]);
-const int NHATERS = sizeof(haters) / sizeof(haters[0]);
-
 // white msg when a hater goes down. no words on the bullets anymore
 const char *praise[] = {
     "capybaras are perfect", "capybara supremacy", "capybaras deserve a treat",
     "capybara is a good boy", "capybaras are chill like that", "respect the capybara"
 };
 const int NPRAISE = sizeof(praise) / sizeof(praise[0]);
-const int NPICK = sizeof(pickups) / sizeof(pickups[0]);
 
 // red insults when u get hit, they are NOT stuck on the balls anymore
 const char *insults[] = {
@@ -78,6 +73,14 @@ const char *insults[] = {
 const int NINSULT = sizeof(insults) / sizeof(insults[0]);
 
 float randf(float a, float b) { return a + (b - a) * GetRandomValue(0, 1000) / 1000.0f; }
+bool inBoxXZ(Vector3 p, BoundingBox b, float pad) {
+    return p.x > b.min.x - pad && p.x < b.max.x + pad &&
+           p.z > b.min.z - pad && p.z < b.max.z + pad;
+}
+void sfx(Sound s, float v) { SetSoundVolume(s, v); PlaySound(s); }
+void ctext(const char *s, int y, int fs, Color c) {
+    DrawText(s, GetScreenWidth()/2 - MeasureText(s, fs)/2, y, fs, c);
+}
 
 // void spawnBot(Vector3 at) {
 //     bots[numBots].pos = at;
@@ -101,7 +104,8 @@ int waveSize(int r) {
     if (r == 1) return 1;
     if (r == 2) return 2;
     if (r == 3) return 4;
-    return 5;
+    if (r == 4) return 6;
+    return 6;
 }
 
 // difficulty changes the haters, not just the menu text
@@ -126,18 +130,11 @@ void reset() {
     for (Bullet &b : bullets) b.alive = false;
     for (Spark &s : sparks) s.life = 0;
     for (Pickup &p : pickups) p.alive = false;
-    wave = 1;
-    spawnRound();
+    wave = 1; kills = 0; dead = false;
     pointT = randf(0.5f, 1.5f);
-    kills = 0;
-    dead = false;
-    praiseMsgT = 0;
-    hurtMsgT = 0;
-    bonusMsgT = 0;
-    winT = 0;
-    dashCd = 0;
-    dashT = 0;
+    praiseMsgT = hurtMsgT = bonusMsgT = winT = dashCd = dashT = 0;
     dashDir = {0,0,-1};
+    spawnRound();
     cam = {{0, EH, 9}, {0, EH, 8}, {0, 1, 0}, 80, CAMERA_PERSPECTIVE};
 }
 
@@ -164,20 +161,19 @@ bool bounce(Bullet &b) {
     if (b.pos.y < r)       { b.pos.y = r;      b.vel.y = fabsf(b.vel.y); return true; }
     if (b.pos.y > WH - r)  { b.pos.y = WH - r; b.vel.y = -fabsf(b.vel.y); return true; }
     for (const BoundingBox &box : map) {
-        if (b.pos.x < box.min.x - r || b.pos.x > box.max.x + r ||
-            b.pos.y < box.min.y - r || b.pos.y > box.max.y + r ||
-            b.pos.z < box.min.z - r || b.pos.z > box.max.z + r) continue;
-        float d[6] = {b.pos.x - (box.min.x - r), (box.max.x + r) - b.pos.x,
-                      b.pos.y - (box.min.y - r), (box.max.y + r) - b.pos.y,
-                      b.pos.z - (box.min.z - r), (box.max.z + r) - b.pos.z};
+        float lim[6] = {box.min.x-r, box.max.x+r, box.min.y-r, box.max.y+r,
+                        box.min.z-r, box.max.z+r};
+        if (b.pos.x < lim[0] || b.pos.x > lim[1] ||
+            b.pos.y < lim[2] || b.pos.y > lim[3] ||
+            b.pos.z < lim[4] || b.pos.z > lim[5]) continue;
+        float d[6] = {b.pos.x-lim[0], lim[1]-b.pos.x, b.pos.y-lim[2],
+                      lim[3]-b.pos.y, b.pos.z-lim[4], lim[5]-b.pos.z};
         int k = 0;
         for (int i = 1; i < 6; i++) if (d[i] < d[k]) k = i;
-        if (k == 0) { b.pos.x = box.min.x - r; b.vel.x = -fabsf(b.vel.x); }
-        if (k == 1) { b.pos.x = box.max.x + r; b.vel.x =  fabsf(b.vel.x); }
-        if (k == 2) { b.pos.y = box.min.y - r; b.vel.y = -fabsf(b.vel.y); }
-        if (k == 3) { b.pos.y = box.max.y + r; b.vel.y =  fabsf(b.vel.y); }
-        if (k == 4) { b.pos.z = box.min.z - r; b.vel.z = -fabsf(b.vel.z); }
-        if (k == 5) { b.pos.z = box.max.z + r; b.vel.z =  fabsf(b.vel.z); }
+        float s = k % 2 ? 1 : -1;
+        if (k < 2) { b.pos.x = lim[k]; b.vel.x = s * fabsf(b.vel.x); }
+        else if (k < 4) { b.pos.y = lim[k]; b.vel.y = s * fabsf(b.vel.y); }
+        else { b.pos.z = lim[k]; b.vel.z = s * fabsf(b.vel.z); }
         return true;
     }
     return false;
@@ -198,10 +194,10 @@ void update(float dt) {
     if (IsKeyDown(KEY_A)) move = Vector3Subtract(move, r);
     if (Vector3LengthSqr(move) > 0) move = Vector3Normalize(move);
     if (IsKeyPressed(KEY_LEFT_SHIFT) && dashCd <= 0 && Vector3LengthSqr(move) > 0) {
-        dashDir = move;           // shift + wasd, not just where you look
+        dashDir = move;
         dashT = 0.18f;
         dashCd = 3.0f;
-        SetSoundVolume(sDash, 0.4f); PlaySound(sDash);
+        sfx(sDash, 0.4f);
     }
     if (dashT > 0) move = dashDir;
     if (Vector3LengthSqr(move) > 0) {
@@ -209,40 +205,32 @@ void update(float dt) {
         me.pos.x = Clamp(me.pos.x + move.x * sp * dt, -A + 0.5f, A - 0.5f);
         me.pos.z = Clamp(me.pos.z + move.z * sp * dt, -A + 0.5f, A - 0.5f);
     }
-    for (const BoundingBox &b : map) if (me.pos.y < b.max.y - 0.1f &&
-        me.pos.x > b.min.x - 0.4f && me.pos.x < b.max.x + 0.4f &&
-        me.pos.z > b.min.z - 0.4f && me.pos.z < b.max.z + 0.4f) {
-        float d[4] = {me.pos.x - (b.min.x - 0.4f), (b.max.x + 0.4f) - me.pos.x,
-                      me.pos.z - (b.min.z - 0.4f), (b.max.z + 0.4f) - me.pos.z};
+    for (const BoundingBox &b : map) if (me.pos.y < b.max.y - 0.1f && inBoxXZ(me.pos, b, 0.4f)) {
+        float lim[4] = {b.min.x-0.4f, b.max.x+0.4f, b.min.z-0.4f, b.max.z+0.4f};
+        float d[4] = {me.pos.x-lim[0], lim[1]-me.pos.x, me.pos.z-lim[2], lim[3]-me.pos.z};
         int k = 0;
         for (int i = 1; i < 4; i++) if (d[i] < d[k]) k = i;
-        if (k == 0) me.pos.x = b.min.x - 0.4f;
-        if (k == 1) me.pos.x = b.max.x + 0.4f;
-        if (k == 2) me.pos.z = b.min.z - 0.4f;
-        if (k == 3) me.pos.z = b.max.z + 0.4f;
+        if (k < 2) me.pos.x = lim[k]; else me.pos.z = lim[k];
     }
     if (IsKeyPressed(KEY_SPACE) && me.grounded) {
         me.vy = 7; me.grounded = false;
-        SetSoundVolume(sJump, 0.25f); PlaySound(sJump);
+        sfx(sJump, 0.25f);
     }
     float oldY = me.pos.y;
     me.vy -= 18 * dt;
     me.pos.y += me.vy * dt;
     if (me.pos.y <= 0) { me.pos.y = 0; me.vy = 0; me.grounded = true; }
     for (const BoundingBox &b : map)
-        if (me.vy <= 0 && oldY >= b.max.y && me.pos.y <= b.max.y &&
-            me.pos.x > b.min.x - 0.4f && me.pos.x < b.max.x + 0.4f &&
-            me.pos.z > b.min.z - 0.4f && me.pos.z < b.max.z + 0.4f) {
+        if (me.vy <= 0 && oldY >= b.max.y && me.pos.y <= b.max.y && inBoxXZ(me.pos, b, 0.4f)) {
             me.pos.y = b.max.y; me.vy = 0; me.grounded = true;
         }
 
     // ammo/reload
-    me.fireT -= dt;
-    me.invuln -= dt;
+    me.fireT -= dt; me.invuln -= dt;
     if (me.reloadT > 0 && (me.reloadT -= dt) <= 0) me.ammo = 12;
     if (IsKeyPressed(KEY_R) || me.ammo == 0) if (me.reloadT <= 0 && me.ammo < 12) {
         me.reloadT = 0.9f;
-        SetSoundVolume(sReload, 0.7f); PlaySound(sReload);
+        sfx(sReload, 0.7f);
     }
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && me.fireT <= 0 && me.reloadT <= 0 && me.ammo > 0) {
         for (Bullet &b : bullets) if (!b.alive) {
@@ -251,19 +239,14 @@ void update(float dt) {
                  Vector3Scale(d, 55), 4, 0, true, true};
             me.ammo--; me.fireT = 0.14f;
             shake = 0.08f;
-            SetSoundVolume(sShoot, 0.6f); PlaySound(sShoot);
+            sfx(sShoot, 0.6f);
             break;
         }
     }
-    hitCd -= dt;
-    praiseMsgT -= dt;
-    hurtMsgT -= dt;
-    bonusMsgT -= dt;
+    hitCd -= dt; praiseMsgT -= dt; hurtMsgT -= dt; bonusMsgT -= dt;
     for (Hater &h : haters) {
         if (!h.alive) continue;
-        h.fireT -= dt;
-        h.hurtT -= dt;
-        h.moveT -= dt;
+        h.fireT -= dt; h.hurtT -= dt; h.moveT -= dt;
         if (h.moveT <= 0) { h.moveT = randf(1.0f, 2.5f); h.dir = randf(0, 6.28318f); }
         float hsp = haterMoveSp();
         Vector3 step = {sinf(h.dir) * hsp * dt, 0, cosf(h.dir) * hsp * dt};
@@ -271,9 +254,7 @@ void update(float dt) {
         np.x = Clamp(np.x, -A + 1, A - 1);
         np.z = Clamp(np.z, -A + 1, A - 1);
         bool stuck = false;
-        for (const BoundingBox &b : map)
-            if (np.x > b.min.x - 0.7f && np.x < b.max.x + 0.7f &&
-                np.z > b.min.z - 0.7f && np.z < b.max.z + 0.7f) stuck = true;
+        for (const BoundingBox &b : map) if (inBoxXZ(np, b, 0.7f)) stuck = true;
         if (stuck) h.moveT = 0; else h.pos = np;
         if (h.fireT > 0) continue;
         h.fireT = randf(haterFireLo(), haterFireHi());
@@ -298,14 +279,14 @@ void update(float dt) {
                 if (hitCd <= 0) {
                     hitCd = 0.05f;
                     emit(b.pos, LIGHTGRAY, 2, 0.25f);
-                    SetSoundVolume(sHit, 0.25f); PlaySound(sHit);
+                    sfx(sHit, 0.25f);
                 }
             }
             // my bullets pop haters
             if (b.mine) for (Hater &h : haters) if (h.alive &&
                 Vector3DistanceSqr(b.pos, (Vector3){h.pos.x, 1.2f, h.pos.z}) < 0.9f * 0.9f) {
                 b.alive = false; h.hp--; h.hurtT = 0.12f;
-                SetSoundVolume(sHit, 0.8f); PlaySound(sHit);
+                sfx(sHit, 0.8f);
                 if (h.hp <= 0) {
                     h.alive = false; kills++;
                     Vector3 at = {h.pos.x, 1.2f, h.pos.z};
@@ -313,7 +294,7 @@ void update(float dt) {
                     for (int q = 0; q < 6; q++) emit(at, RED, 4, 0.6f);
                     praiseMsg = praise[GetRandomValue(0, NPRAISE - 1)];
                     praiseMsgT = 1.8f;
-                    SetSoundVolume(sKill, 1.0f); PlaySound(sKill);
+                    sfx(sKill, 1.0f);
                 }
                 break;
             }
@@ -339,13 +320,10 @@ void update(float dt) {
                 for (int tries = 0; tries < 12; tries++) {
                     p.pos = {randf(-A+1, A-1), 0.8f, randf(-A+1, A-1)};
                     bool blocked = false;
-                    for (const BoundingBox &b : map)
-                        if (p.pos.x > b.min.x - 1.0f && p.pos.x < b.max.x + 1.0f &&
-                            p.pos.z > b.min.z - 1.0f && p.pos.z < b.max.z + 1.0f) blocked = true;
+                    for (const BoundingBox &b : map) if (inBoxXZ(p.pos, b, 1.0f)) blocked = true;
                     if (!blocked) break;
                 }
-                p.spin = 0;
-                p.alive = true;
+                p.spin = 0; p.alive = true;
                 break;
             }
     }
@@ -356,20 +334,18 @@ void update(float dt) {
             me.hp += 30;
             if (me.hp > 100) me.hp = 100;
             bonusMsgT = 1.2f;
-            SetSoundVolume(sJump, 0.5f); PlaySound(sJump);
+            sfx(sJump, 0.5f);
         }
     }
     if (me.hp <= 0 && !dead) {
         dead = true;
         hurtMsgT = 0;
-        SetSoundVolume(sKill, 0.9f); PlaySound(sKill);
+        sfx(sKill, 0.9f);
     }
     // clear the round, then spawn the next bunch
     if (kills >= waveSize(wave) && winT <= 0) winT = 2.5f;
     if (winT > 0 && (winT -= dt) <= 0) {
-        wave++;
-        kills = 0;
-        spawnRound();
+        wave++; kills = 0; spawnRound();
     }
     for (Spark &s : sparks) {
         if (s.life <= 0) continue;
@@ -396,8 +372,7 @@ void drawWorld() {
     DrawCube((Vector3){0, WH/2,  A+0.5f}, A*2+1, WH, 1, wall);
     DrawCube((Vector3){-A-0.5f, WH/2, 0}, 1, WH, A*2+1, wall);
     DrawCube((Vector3){ A+0.5f, WH/2, 0}, 1, WH, A*2+1, wall);
-    for (int i = 0; i < NMAP; i++) {
-        BoundingBox b = map[i];
+    for (const BoundingBox &b : map) {
         Vector3 c = {(b.min.x+b.max.x)/2, (b.min.y+b.max.y)/2, (b.min.z+b.max.z)/2};
         Vector3 s = {b.max.x-b.min.x, b.max.y-b.min.y, b.max.z-b.min.z};
         DrawCubeV(c, s, (Color){35, 85, 50, 255});      // dark green boxes
@@ -418,12 +393,14 @@ void drawWorld() {
                          (Vector2){1.0f, (float)pointsTex.height / pointsTex.width},
                          (Vector2){0.5f, 0.5f}, p.spin, WHITE);
     }
+    Rectangle bs = {0, 0, (float)bulletTex.width, (float)bulletTex.height};
     for (const Bullet &b : bullets) {
         if (!b.alive) continue;
-        Color c = b.mine ? RAYWHITE : RED;
-        DrawSphere(b.pos, 0.28f, Fade(c, 0.18f));
-        DrawSphere(b.pos, 0.11f, c);
-        DrawLine3D(Vector3Subtract(b.pos, Vector3Scale(Vector3Normalize(b.vel), 0.8f)), b.pos, c);
+        Color trail = b.mine ? (Color){210, 170, 110, 255} : RED;
+        Color tint = b.mine ? WHITE : RED;
+        DrawLine3D(Vector3Subtract(b.pos, Vector3Scale(Vector3Normalize(b.vel), 0.8f)), b.pos, trail);
+        DrawBillboardPro(cam, bulletTex, bs, b.pos, (Vector3){0,1,0},
+                         (Vector2){0.72f, 0.72f}, (Vector2){0.5f,0.5f}, 0, tint);
     }
     for (const Spark &s : sparks)
         if (s.life > 0) DrawCube(s.pos, 0.13f, 0.13f, 0.13f, Fade(s.c, Clamp(s.life, 0, 1)));
@@ -449,43 +426,33 @@ void drawHateText() {
     };
     for (const Hater &h : haters) if (h.alive)
         tag((Vector3){h.pos.x, 2.2f, h.pos.z}, "your ex", 18, LIGHTGRAY);
-    if (praiseMsgT > 0) {
-        int fs = 36;
-        DrawText(praiseMsg, GetScreenWidth()/2 - MeasureText(praiseMsg, fs)/2,
-                 GetScreenHeight()/2 - 20, fs, Fade(WHITE, Clamp(praiseMsgT, 0, 1)));
-    }
-    if (hurtMsgT > 0) {
-        int fs = 38;
-        DrawText(hurtMsg, GetScreenWidth()/2 - MeasureText(hurtMsg, fs)/2,
-                 GetScreenHeight()/2 + 70, fs, Fade(RED, Clamp(hurtMsgT, 0, 1)));
-    }
+    if (praiseMsgT > 0)
+        ctext(praiseMsg, GetScreenHeight()/2 - 20, 36, Fade(WHITE, Clamp(praiseMsgT, 0, 1)));
+    if (hurtMsgT > 0)
+        ctext(hurtMsg, GetScreenHeight()/2 + 70, 38, Fade(RED, Clamp(hurtMsgT, 0, 1)));
     if (bonusMsgT > 0)
         DrawText(bonusMsg, GetScreenWidth()/2 + 24, GetScreenHeight()/2 + 26, 22,
                  Fade(WHITE, Clamp(bonusMsgT, 0, 1)));
-    if (winT > 0) {
-        const char *w = TextFormat("ROUND %d CLEARED - more haters loading...", wave);
-        DrawText(w, GetScreenWidth()/2 - MeasureText(w, 30)/2,
-                 GetScreenHeight()/2 - 140, 30, RAYWHITE);
-    }
+    if (winT > 0)
+        ctext(TextFormat("ROUND %d CLEARED - more haters loading...", wave),
+              GetScreenHeight()/2 - 140, 30, RAYWHITE);
 }
 
 void drawMinimap() {
     int mx = W - 186, my = 20, ms = 160;
+    auto px = [&](float v) { return (int)(mx + (v + A) / (2*A) * ms); };
+    auto py = [&](float v) { return (int)(my + (v + A) / (2*A) * ms); };
     DrawRectangle(mx - 6, my - 6, ms + 12, ms + 12, Fade(BLACK, 0.55f));
     DrawRectangleLines(mx, my, ms, ms, LIGHTGRAY);
     for (const BoundingBox &b : map)
-        DrawRectangle(mx + (b.min.x + A) / (2*A) * ms, my + (b.min.z + A) / (2*A) * ms,
-                      (b.max.x - b.min.x) / (2*A) * ms, (b.max.z - b.min.z) / (2*A) * ms,
-                      Fade(GRAY, 0.9f));
-    auto dot = [&](float x, float z, Color c, int r) {
-        DrawCircle(mx + (x + A) / (2*A) * ms, my + (z + A) / (2*A) * ms, r, c);
-    };
+        DrawRectangle(px(b.min.x), py(b.min.z), px(b.max.x)-px(b.min.x),
+                      py(b.max.z)-py(b.min.z), Fade(GRAY, 0.9f));
+    auto dot = [&](float x, float z, Color c, int r) { DrawCircle(px(x), py(z), r, c); };
     for (const Hater &h : haters) if (h.alive) dot(h.pos.x, h.pos.z, RED, 4);
     for (const Pickup &p : pickups) if (p.alive) dot(p.pos.x, p.pos.z, LIGHTGRAY, 2);
     dot(me.pos.x, me.pos.z, RAYWHITE, 4);
-    DrawLine(mx + (me.pos.x + A) / (2*A) * ms, my + (me.pos.z + A) / (2*A) * ms,
-             mx + (me.pos.x + sinf(me.yaw) * 2 + A) / (2*A) * ms,
-             my + (me.pos.z - cosf(me.yaw) * 2 + A) / (2*A) * ms, RAYWHITE);
+    DrawLine(px(me.pos.x), py(me.pos.z),
+             px(me.pos.x + sinf(me.yaw)*2), py(me.pos.z - cosf(me.yaw)*2), RAYWHITE);
     DrawText(mode ? "players" : "haters", mx, my + ms + 8, 14, LIGHTGRAY);
 }
 
@@ -525,7 +492,8 @@ int main() {
     sReload = LoadSound("assets/reload.mp3");
     sDash = LoadSound("assets/dash.mp3");
     pointsTex = LoadTexture("assets/points.png");
-    snakeModel = LoadModel("assets/snake/Snake.obj");   // fbx converted to obj, texture is in the folder
+    bulletTex = LoadTexture("assets/capybara_bullet.png");
+    snakeModel = LoadModel("assets/snake/Snake.obj");
     SetTargetFPS(120);
     SetExitKey(KEY_NULL);
     reset();
@@ -551,9 +519,9 @@ int main() {
             if (IsKeyPressed(KEY_TWO) && !nameTaken) { mode = 1; reset(); screen = S_GAME; }
             if (IsKeyPressed(KEY_BACKSPACE)) screen = S_NAME;
         } else if (screen == S_DIFF) {
-            if (IsKeyPressed(KEY_ONE)) { difficulty = 0; reset(); screen = S_GAME; }
-            if (IsKeyPressed(KEY_TWO)) { difficulty = 1; reset(); screen = S_GAME; }
-            if (IsKeyPressed(KEY_THREE)) { difficulty = 2; reset(); screen = S_GAME; }
+            int keys[] = {KEY_ONE, KEY_TWO, KEY_THREE};
+            for (int i = 0; i < 3; i++)
+                if (IsKeyPressed(keys[i])) { difficulty = i; reset(); screen = S_GAME; }
             if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
         } else {
             if (IsKeyPressed(KEY_ESCAPE)) { screen = S_MENU; dead = false; }
@@ -584,11 +552,8 @@ int main() {
             drawMinimap();
             if (dead) {
                 DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, 0.72f));
-                const char *r = TextFormat("round %d", wave);
-                DrawText(r, GetScreenWidth()/2 - MeasureText(r, 24)/2, 24, 24, RAYWHITE);
-                const char *d = "U DIED";
-                DrawText(d, GetScreenWidth()/2 - MeasureText(d, 72)/2,
-                         GetScreenHeight()/2 - 100, 72, RED);
+                ctext(TextFormat("round %d", wave), 24, 24, RAYWHITE);
+                ctext("U DIED", GetScreenHeight()/2 - 100, 72, RED);
                 DrawText("ENTER = respawn   ESC = menu", GetScreenWidth()/2 - 190,
                          GetScreenHeight()/2 + 20, 20, LIGHTGRAY);
             }
@@ -598,7 +563,7 @@ int main() {
     UnloadSound(sHit); UnloadSound(sKill); UnloadSound(sJump);
     UnloadSound(sShoot); UnloadSound(sReload); UnloadSound(sDash);
     UnloadModel(snakeModel);
-    UnloadTexture(pointsTex);
+    UnloadTexture(pointsTex); UnloadTexture(bulletTex);
     CloseAudioDevice();
     CloseWindow();
     return 0;

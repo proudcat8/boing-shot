@@ -1,0 +1,5 @@
+capybara_bullet.png
+  source: https://pngimg.com/image/115336
+  direct: https://pngimg.com/uploads/capybara/capybara_PNG25.png
+  license: CC BY-NC 4.0 - https://pngimg.com/license
+  downloaded 2026-11-22, no edits
