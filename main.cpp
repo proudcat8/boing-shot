@@ -27,7 +27,8 @@ Hater haters[5];
 Pickup pickups[3];
 Camera3D cam;
 Sound sHit, sKill, sJump, sShoot, sReload, sDash;
-Texture2D pointsTex;
+Texture2D pointsTex, catTex;
+Model catModel;
 float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT = 0;
 float dashCd = 0, dashT = 0;
 const char *diffName[] = {"chill", "normal", "mean"};
@@ -86,8 +87,7 @@ int waveSize(int r) {
     if (r == 1) return 1;
     if (r == 2) return 2;
     if (r == 3) return 4;
-    if (r == 4) return 6;
-    return 6;
+    return 5;
 }
 
 // difficulty changes the haters, not just the menu text
@@ -100,7 +100,7 @@ int haterHpMax()   { return difficulty == 0 ? 1 : difficulty == 2 ? 3 : 2; }
 void spawnRound() {
     for (Hater &h : haters) h.alive = false;
     if (mode == 1) return;      // online stays empty till netcode exists
-    Vector3 spots[] = {{0,0,-9}, {-7,0,-9}, {7,0,7}, {-8,0,6}, {8,0,-6}};
+    Vector3 spots[] = {{-4,0,-9}, {-7,0,-9}, {7,0,7}, {-8,0,6}, {8,0,-6}};
     int n = waveSize(wave);
     for (int i = 0; i < n; i++)
         haters[i] = {spots[i], randf(1.0f, 2.6f), 0,
@@ -227,10 +227,6 @@ void update(float dt) {
     if (IsKeyPressed(KEY_R) || me.ammo == 0) if (me.reloadT <= 0 && me.ammo < 12) {
         me.reloadT = 0.9f;
         SetSoundVolume(sReload, 0.7f); PlaySound(sReload);
-    }
-    if (IsKeyPressed(KEY_K)) {          // temp key
-        burst(me.pos);
-        SetSoundVolume(sKill, 1.0f); PlaySound(sKill);
     }
     if (IsMouseButtonDown(MOUSE_BUTTON_LEFT) && me.fireT <= 0 && me.reloadT <= 0 && me.ammo > 0) {
         for (Bullet &b : bullets) if (!b.alive) {
@@ -380,7 +376,7 @@ void drawWorld() {
         DrawLine3D((Vector3){i, 0.02f, -A}, (Vector3){i, 0.02f, A}, grid);
         DrawLine3D((Vector3){-A, 0.02f, i}, (Vector3){A, 0.02f, i}, grid);
     }
-    Color wall = DARKGRAY;
+    Color wall = {230, 140, 215, 255};   // light magenta walls
     DrawCube((Vector3){0, WH/2, -A-0.5f}, A*2+1, WH, 1, wall);
     DrawCube((Vector3){0, WH/2,  A+0.5f}, A*2+1, WH, 1, wall);
     DrawCube((Vector3){-A-0.5f, WH/2, 0}, 1, WH, A*2+1, wall);
@@ -389,26 +385,16 @@ void drawWorld() {
         BoundingBox b = map[i];
         Vector3 c = {(b.min.x+b.max.x)/2, (b.min.y+b.max.y)/2, (b.min.z+b.max.z)/2};
         Vector3 s = {b.max.x-b.min.x, b.max.y-b.min.y, b.max.z-b.min.z};
-        DrawCubeV(c, s, GRAY);
-        DrawCubeWiresV(c, s, LIGHTGRAY);
+        DrawCubeV(c, s, (Color){35, 85, 50, 255});      // dark green boxes
+        DrawCubeWiresV(c, s, (Color){100, 160, 110, 255});
     }
+    // cats are the natural preditors of capybaras. model front is +z
     for (const Hater &h : haters) if (h.alive) {
         float bob = sinf(t * 4 + h.pos.x) * 0.05f;
-        Color skin = h.hurtT > 0 ? RAYWHITE : GRAY;
-        DrawCube((Vector3){h.pos.x, 0.9f + bob, h.pos.z}, 1.0f, 1.3f, 0.75f, skin);
-        DrawCubeWires((Vector3){h.pos.x, 0.9f + bob, h.pos.z}, 1.0f, 1.3f, 0.75f, RED);
-        DrawCube((Vector3){h.pos.x, 1.85f + bob, h.pos.z - 0.25f}, 0.7f, 0.55f, 0.6f, skin);
-        // tiny top hat, very serious hater
-        DrawCube((Vector3){h.pos.x, 2.25f + bob, h.pos.z - 0.25f}, 0.5f, 0.25f, 0.45f, DARKGRAY);
-        DrawCube((Vector3){h.pos.x, 2.4f + bob, h.pos.z - 0.25f}, 0.3f, 0.1f, 0.3f, DARKGRAY);
-        // mad little eyes, they watch you while wandering
-        Vector3 look = Vector3Normalize((Vector3){me.pos.x - h.pos.x + 0.001f, 0,
-                                                  me.pos.z - h.pos.z + 0.001f});
-        Vector3 side = {-look.z, 0, look.x};
-        Vector3 eyeMid = Vector3Add((Vector3){h.pos.x, 1.93f + bob, h.pos.z},
-                                    Vector3Scale(look, 0.57f));
-        DrawCube(Vector3Add(eyeMid, Vector3Scale(side, -0.17f)), 0.12f, 0.08f, 0.04f, RED);
-        DrawCube(Vector3Add(eyeMid, Vector3Scale(side,  0.17f)), 0.12f, 0.08f, 0.04f, RED);
+        float face = atan2f(me.pos.x - h.pos.x, me.pos.z - h.pos.z) * RAD2DEG;
+        Color skin = h.hurtT > 0 ? RED : WHITE;
+        DrawModelEx(catModel, (Vector3){h.pos.x, 0.1f + bob, h.pos.z},
+                    (Vector3){0, 1, 0}, face, (Vector3){5, 5, 5}, skin);
     }
     for (const Pickup &p : pickups) if (p.alive) {
         Vector3 at = {p.pos.x, p.pos.y + sinf(t * 3 + p.pos.x) * 0.15f, p.pos.z};
@@ -524,6 +510,22 @@ int main() {
     sReload = LoadSound("assets/reload.mp3");
     sDash = LoadSound("assets/dash.mp3");
     pointsTex = LoadTexture("assets/points.png");
+    catModel = LoadModel("assets/cat/Cat Curious Pose.obj");
+    // zip had no textures, paint a quick tabby pattern on the cat
+    Image fur = GenImageColor(128, 128, (Color){195, 135, 70, 255});
+    for (int y = 0; y < 128; y++) {
+        int band = (int)((y + 6 * sinf(y * 0.13f)) / 13);
+        Color stripe = (band % 2 == 0) ? (Color){105, 65, 35, 255}
+                                       : (Color){195, 135, 70, 255};
+        for (int x = 0; x < 128; x++) ImageDrawPixel(&fur, x, y, stripe);
+    }
+    ImageDrawRectangle(&fur, 0, 103, 128, 25, (Color){225, 195, 150, 255});
+    catTex = LoadTextureFromImage(fur);
+    UnloadImage(fur);
+    for (int i = 0; i < catModel.materialCount; i++) {
+        SetMaterialTexture(&catModel.materials[i], MATERIAL_MAP_DIFFUSE, catTex);
+        catModel.materials[i].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
+    }
     SetTargetFPS(120);
     SetExitKey(KEY_NULL);
     reset();
@@ -568,7 +570,7 @@ int main() {
             EndMode3D();
             drawCrosshair();
             drawHateText();
-            DrawText(TextFormat("%s  |  %s  |  %s  |  ammo %d  |  K = fx", pname,
+            DrawText(TextFormat("%s  |  %s  |  %s  |  ammo %d", pname,
                                 mode ? "ONLINE" : "BOTS", diffName[difficulty], me.ammo),
                      20, 20, 20, RAYWHITE);
             DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
@@ -595,6 +597,8 @@ int main() {
     }
     UnloadSound(sHit); UnloadSound(sKill); UnloadSound(sJump);
     UnloadSound(sShoot); UnloadSound(sReload); UnloadSound(sDash);
+    UnloadModel(catModel);
+    UnloadTexture(catTex);
     UnloadTexture(pointsTex);
     CloseAudioDevice();
     CloseWindow();

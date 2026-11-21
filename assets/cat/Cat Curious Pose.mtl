@@ -1,0 +1,18 @@
+# Blender 5.2.0 LTS MTL File: '120_Cat Curious Pose.blend'
+# www.blender.org
+
+newmtl material_0
+Ks 0.000000 0.000000 0.000000
+Ni 1.500000
+d 1.000000
+illum 1
+Pr 0.500000
+Pm 0.000000
+Ps 0.000000
+Pc 0.000000
+Pcr 0.030000
+aniso 0.000000
+anisor 0.000000
+map_Kd textures/material_0_baseColor.png
+map_Ke textures/material_0_emissive.png
+map_Bump -bm 1.000000 textures/material_0_normal.png
