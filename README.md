@@ -67,6 +67,18 @@ g++ -O2 main.cpp -o boing-shoot -lraylib -lm -lpthread -ldl
 
 the tracked `boing-shoot` binary can also just be run. stay in this folder so `assets/` loads right.
 
+# browser / itch.io
+
+there is also a real wasm web build:
+
+```sh
+bash web/build.sh
+```
+
+that makes `web/dist/index.html` and `boing-shoot-web.zip`. upload the zip to itch.io as an HTML project, 1280x720, with "played in the browser" on. full itch steps are in `web/README.md`.
+
+made for haven hack club, delhi — https://hack.club/hv
+
 # where the stuff came from
 
 capybara bullet png came from pngimg, CC BY-NC 4.0, links are in `assets/CREDITS.txt`.

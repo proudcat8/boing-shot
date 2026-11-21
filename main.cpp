@@ -182,8 +182,10 @@ bool bounce(Bullet &b) {
 void update(float dt) {
     if (dead) return;
     Vector2 m = GetMouseDelta();
-    me.yaw += m.x * 0.003f;
-    me.pitch = Clamp(me.pitch - m.y * 0.003f, -1.3f, 1.3f);
+    if (fabsf(m.x) < 100 && fabsf(m.y) < 100) {
+        me.yaw += m.x * 0.003f;
+        me.pitch = Clamp(me.pitch - m.y * 0.003f, -1.3f, 1.3f);
+    }
     Vector3 f = {sinf(me.yaw), 0, -cosf(me.yaw)}, r = {cosf(me.yaw), 0, sinf(me.yaw)};
     if (dashT > 0) dashT -= dt;
     if (dashCd > 0) dashCd -= dt;

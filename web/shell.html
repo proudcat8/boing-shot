@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Hail the capybara</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #151515; color: #e8e8e8; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    #wrap { max-width: 1280px; margin: 0 auto; padding: 12px; box-sizing: border-box; text-align: center; }
+    h1 { font-size: 20px; margin: 4px 0 2px; letter-spacing: 0.04em; }
+    .tiny { font-size: 12px; color: #a8a8a8; margin: 4px 0 10px; line-height: 1.5; }
+    #status { font-size: 13px; min-height: 18px; color: #d8d8d8; }
+    #bar { height: 5px; width: min(100%, 420px); margin: 4px auto 10px; background: #333; overflow: hidden; }
+    #progress { height: 100%; width: 0; background: #e68cd7; transition: width 120ms linear; }
+    #canvas { display: block; width: 100%; max-width: 1280px; aspect-ratio: 16 / 9; background: #000; border: 0; outline: none; margin: 0 auto; cursor: crosshair; }
+    button { font: inherit; font-size: 12px; color: #e8e8e8; background: #2b2b2b; border: 1px solid #666; padding: 4px 10px; margin-top: 10px; cursor: pointer; }
+    button:hover { background: #3a3a3a; }
+    .credit { margin-top: 10px; font-size: 11px; color: #888; }
+    .credit a { color: #d3a7cc; }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <h1>HAIL THE CAPYBARA</h1>
+    <p class="tiny">haven hack club / delhi — <a href="https://hack.club/hv">hack.club/hv</a><br>click the game once for mouse + sound. esc gives the mouse back.</p>
+    <div id="status">loading capybara artillery...</div>
+    <div id="bar"><div id="progress"></div></div>
+    <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
+    <button id="fullscreen">fullscreen</button>
+    <p class="tiny">WASD move · mouse aim · left click shoot · space jump · shift+WASD dash · R reload · esc menu</p>
+    <p class="credit">pure cpp with raylib. no game editor.</p>
+  </div>
+
+  <script>
+    var Module = {
+      canvas: (function () {
+        var c = document.getElementById('canvas');
+        c.addEventListener('webglcontextlost', function (e) { e.preventDefault(); }, false);
+        c.addEventListener('click', function () {
+          if (!document.pointerLockElement && c.requestPointerLock) c.requestPointerLock();
+        });
+        return c;
+      })(),
+      print: function (text) { console.log(text); },
+      printErr: function (text) { console.error(text); },
+      setStatus: function (text) {
+        document.getElementById('status').textContent = text || '';
+        var m = (text || '').match(/\((\d+)%\)/);
+        if (m) document.getElementById('progress').style.width = m[1] + '%';
+        if (!text) document.getElementById('progress').style.width = '100%';
+      },
+      monitorRunDependencies: function () {}
+    };
+
+    document.getElementById('fullscreen').addEventListener('click', function () {
+      var c = document.getElementById('canvas');
+      if (c.requestFullscreen) c.requestFullscreen();
+      else if (c.msRequestFullscreen) c.msRequestFullscreen();
+      else if (c.webkitRequestFullscreen) c.webkitRequestFullscreen();
+    });
+
+    window.addEventListener('error', function (e) {
+      document.getElementById('status').textContent = 'oops: ' + e.message;
+    });
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>
