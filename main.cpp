@@ -1,5 +1,5 @@
 // capybara haters shoot red bullets, you shoot them down lol
-// still no netcode or textures yet
+// still no netcode or proper textures yet
 #include "raylib.h"
 #include "raymath.h"
 #include <cctype>
@@ -19,16 +19,22 @@ struct Player { Vector3 pos; float yaw, pitch, vy, fireT, reloadT, invuln; bool 
 struct Bullet { Vector3 pos, vel; float life; int bounces; bool alive, mine; };
 struct Spark  { Vector3 pos, vel; float life; Color c; };
 struct Hater  { Vector3 pos; float fireT, hurtT; int hp; bool alive; };
+struct Pickup { Vector3 pos; float spin; bool alive; };
 
 Player me;
 Bullet bullets[100];
 Spark sparks[60];
 Hater haters[5];
+Pickup pickups[3];
 Camera3D cam;
 Sound sHit, sKill, sJump, sShoot, sReload;
-float hitCd = 0, praiseMsgT = 0, winT = 0;
+Texture2D pointsTex;
+float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT = 0;
 const char *praiseMsg = "capybaras are perfect";
-int kills = 0;
+const char *hurtMsg = "capybara bad";
+const char *bonusMsg = "+5";
+int kills = 0, score = 0;
+bool dead = false;
 
 BoundingBox map[] = {
     {{-9,0,-2},{-2.5,3,-1}},  {{2.5,0,-2},{9,3,-1}},
@@ -45,6 +51,15 @@ const char *praise[] = {
     "capybara is a good boy", "capybaras are chill like that", "respect the capybara"
 };
 const int NPRAISE = sizeof(praise) / sizeof(praise[0]);
+const int NPICK = sizeof(pickups) / sizeof(pickups[0]);
+
+// red insults when u get hit, they are NOT stuck on the balls anymore
+const char *insults[] = {
+    "capybara bad", "capybara overrated", "capybaras r mid",
+    "capybara stole my lunch", "no capybaras allowed",
+    "capybara = fancy rat", "capybara bad at math"
+};
+const int NINSULT = sizeof(insults) / sizeof(insults[0]);
 
 float randf(float a, float b) { return a + (b - a) * GetRandomValue(0, 1000) / 1000.0f; }
 
@@ -69,11 +84,17 @@ void reset() {
     me = {{0, 0, 9}, 0, 0, 0, 0, 0, 0, true, 12, 100};
     for (Bullet &b : bullets) b.alive = false;
     for (Spark &s : sparks) s.life = 0;
+    for (Pickup &p : pickups) p.alive = false;
     Vector3 spots[] = {{-7,0,-9}, {7,0,7}, {-8,0,6}, {8,0,-6}, {0,0,-9}};
     for (int i = 0; i < NHATERS; i++)
         haters[i] = {spots[i], randf(1.0f, 2.6f), 0, 2, true};
+    pointT = randf(0.5f, 1.5f);
     kills = 0;
+    score = 0;
+    dead = false;
     praiseMsgT = 0;
+    hurtMsgT = 0;
+    bonusMsgT = 0;
     winT = 0;
     cam = {{0, EH, 9}, {0, EH, 8}, {0, 1, 0}, 80, CAMERA_PERSPECTIVE};
 }
@@ -121,6 +142,7 @@ bool bounce(Bullet &b) {
 }
 
 void update(float dt) {
+    if (dead) return;
     Vector2 m = GetMouseDelta();
     me.yaw += m.x * 0.003f;
     me.pitch = Clamp(me.pitch - m.y * 0.003f, -1.3f, 1.3f);
@@ -179,7 +201,7 @@ void update(float dt) {
         for (Bullet &b : bullets) if (!b.alive) {
             Vector3 d = {sinf(me.yaw)*cosf(me.pitch), sinf(me.pitch), -cosf(me.yaw)*cosf(me.pitch)};
             b = {Vector3Add((Vector3){me.pos.x, me.pos.y + EH, me.pos.z}, Vector3Scale(d, 0.5f)),
-                 Vector3Scale(d, 55), 5, 0, true, true};
+                 Vector3Scale(d, 55), 4, 0, true, true};
             me.ammo--; me.fireT = 0.14f;
             shake = 0.08f;
             SetSoundVolume(sShoot, 0.6f); PlaySound(sShoot);
@@ -188,6 +210,8 @@ void update(float dt) {
     }
     hitCd -= dt;
     praiseMsgT -= dt;
+    hurtMsgT -= dt;
+    bonusMsgT -= dt;
     // the haters take turns being annoying
     for (Hater &h : haters) {
         if (!h.alive) continue;
@@ -202,7 +226,7 @@ void update(float dt) {
             dir.x += randf(-0.07f, 0.07f);
             dir = Vector3Normalize(dir);
             b = {Vector3Add(from, Vector3Scale(dir, 0.6f)), Vector3Scale(dir, 15),
-                 8, 0, true, false};
+                 7, 0, true, false};
             break;
         }
     }
@@ -227,7 +251,7 @@ void update(float dt) {
                 b.alive = false; h.hp--; h.hurtT = 0.12f;
                 SetSoundVolume(sHit, 0.8f); PlaySound(sHit);
                 if (h.hp <= 0) {
-                    h.alive = false; kills++;
+                    h.alive = false; kills++; score += 1;
                     Vector3 at = {h.pos.x, 1.2f, h.pos.z};
                     burst(at);
                     for (int q = 0; q < 6; q++) emit(at, RED, 4, 0.6f);
@@ -243,11 +267,45 @@ void update(float dt) {
                 (!b.mine || b.bounces > 0)) {
                 b.alive = false;
                 me.hp -= 10; me.invuln = 0.4f;
+                hurtMsg = insults[GetRandomValue(0, NINSULT - 1)];
+                hurtMsgT = 1.1f;
                 shake = 0.25f;
             }
         }
     }
-    if (me.hp <= 0) reset();
+    // points.png pickups: 5% roll, random regen time, max 3 out
+    pointT -= dt;
+    if (pointT <= 0) {
+        pointT = randf(0.5f, 1.5f);
+        if (GetRandomValue(0, 99) < 5)
+            for (Pickup &p : pickups) if (!p.alive) {
+                for (int tries = 0; tries < 8; tries++) {
+                    p.pos = {randf(-A+1, A-1), 0.8f, randf(-A+1, A-1)};
+                    bool blocked = false;
+                    for (const BoundingBox &b : map)
+                        if (p.pos.x > b.min.x - 0.8f && p.pos.x < b.max.x + 0.8f &&
+                            p.pos.z > b.min.z - 0.8f && p.pos.z < b.max.z + 0.8f) blocked = true;
+                    if (!blocked) break;
+                }
+                p.spin = 0;
+                p.alive = true;
+                break;
+            }
+    }
+    for (Pickup &p : pickups) if (p.alive) {
+        p.spin += dt * 1.5f;
+        if (Vector3DistanceSqr(p.pos, (Vector3){me.pos.x, me.pos.y + 1, me.pos.z}) < 1.1f * 1.1f) {
+            p.alive = false;
+            score += 5;
+            bonusMsgT = 1.2f;
+            SetSoundVolume(sJump, 0.5f); PlaySound(sJump);
+        }
+    }
+    if (me.hp <= 0 && !dead) {
+        dead = true;
+        hurtMsgT = 0;
+        SetSoundVolume(sKill, 0.9f); PlaySound(sKill);
+    }
     if (kills >= NHATERS && winT <= 0) winT = 3.0f;
     if (winT > 0 && (winT -= dt) <= 0) reset();
     for (Spark &s : sparks) {
@@ -295,6 +353,14 @@ void drawWorld() {
         DrawCube((Vector3){h.pos.x - 0.17f, 1.93f + bob, h.pos.z - 0.57f}, 0.12f, 0.08f, 0.04f, RED);
         DrawCube((Vector3){h.pos.x + 0.17f, 1.93f + bob, h.pos.z - 0.57f}, 0.12f, 0.08f, 0.04f, RED);
     }
+    // the png is a spinning quad out in the 3d world
+    for (const Pickup &p : pickups) if (p.alive) {
+        Vector3 at = {p.pos.x, p.pos.y + sinf(t * 3 + p.pos.x) * 0.15f, p.pos.z};
+        Rectangle src = {0, 0, (float)pointsTex.width, (float)pointsTex.height};
+        DrawBillboardPro(cam, pointsTex, src, at, (Vector3){0, 1, 0},
+                         (Vector2){1.0f, (float)pointsTex.height / pointsTex.width},
+                         (Vector2){0.5f, 0.5f}, p.spin, WHITE);
+    }
     for (const Bullet &b : bullets) {
         if (!b.alive) continue;
         Color c = b.mine ? RAYWHITE : RED;
@@ -315,7 +381,7 @@ void drawCrosshair() {
     DrawLine(cx, cy + 5, cx, cy + 14, RAYWHITE);
 }
 
-// tags, kill praise and win msg. 2d on top, fullscreen works too
+// tags, praise, insults, bonus, win msg. 2d on top, fullscreen works too
 void drawHateText() {
     Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
     auto tag = [&](Vector3 p, const char *say, int fs, Color c) {
@@ -331,6 +397,14 @@ void drawHateText() {
         DrawText(praiseMsg, GetScreenWidth()/2 - MeasureText(praiseMsg, fs)/2,
                  GetScreenHeight()/2 - 20, fs, Fade(WHITE, Clamp(praiseMsgT, 0, 1)));
     }
+    if (hurtMsgT > 0) {
+        int fs = 38;
+        DrawText(hurtMsg, GetScreenWidth()/2 - MeasureText(hurtMsg, fs)/2,
+                 GetScreenHeight()/2 + 70, fs, Fade(RED, Clamp(hurtMsgT, 0, 1)));
+    }
+    if (bonusMsgT > 0)
+        DrawText(bonusMsg, GetScreenWidth()/2 + 24, GetScreenHeight()/2 + 26, 22,
+                 Fade(WHITE, Clamp(bonusMsgT, 0, 1)));
     if (winT > 0) {
         const char *w = "CAPYBARA WINS - more haters loading...";
         DrawText(w, GetScreenWidth()/2 - MeasureText(w, 30)/2,
@@ -351,6 +425,7 @@ void drawMinimap() {
         DrawCircle(mx + (x + A) / (2*A) * ms, my + (z + A) / (2*A) * ms, r, c);
     };
     for (const Hater &h : haters) if (h.alive) dot(h.pos.x, h.pos.z, RED, 4);
+    for (const Pickup &p : pickups) if (p.alive) dot(p.pos.x, p.pos.z, LIGHTGRAY, 2);
     dot(me.pos.x, me.pos.z, RAYWHITE, 4);
     DrawLine(mx + (me.pos.x + A) / (2*A) * ms, my + (me.pos.z + A) / (2*A) * ms,
              mx + (me.pos.x + sinf(me.yaw) * 2 + A) / (2*A) * ms,
@@ -386,6 +461,7 @@ int main() {
     sJump = LoadSound("assets/jump.mp3");
     sShoot = LoadSound("assets/shoot.mp3");
     sReload = LoadSound("assets/reload.mp3");
+    pointsTex = LoadTexture("assets/points.png");
     SetTargetFPS(120);
     SetExitKey(KEY_NULL);
     reset();
@@ -411,8 +487,10 @@ int main() {
             if (IsKeyPressed(KEY_TWO) && !nameTaken) { mode = 1; reset(); screen = S_GAME; }
             if (IsKeyPressed(KEY_BACKSPACE)) screen = S_NAME;
         } else {
-            if (IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
-            update(dt);
+            if (IsKeyPressed(KEY_ESCAPE)) { screen = S_MENU; dead = false; }
+            if (dead) {
+                if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_R)) reset();
+            } else update(dt);
         }
 
         BeginDrawing();
@@ -423,16 +501,27 @@ int main() {
             EndMode3D();
             drawCrosshair();
             drawHateText();
-            DrawText(TextFormat("%s  |  %s  |  ammo %d  |  haters %d/%d  |  K = fx", pname,
-                                mode ? "ONLINE" : "BOTS", me.ammo, kills, NHATERS), 20, 20, 20, RAYWHITE);
+            DrawText(TextFormat("%s  |  %s  |  score %d  |  ammo %d  |  haters %d/%d  |  K = fx", pname,
+                                mode ? "ONLINE" : "BOTS", score, me.ammo, kills, NHATERS), 20, 20, 20, RAYWHITE);
             // bots + netcode need
             DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
             drawMinimap();
+            if (dead) {
+                DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, 0.72f));
+                const char *d = "U DIED";
+                DrawText(d, GetScreenWidth()/2 - MeasureText(d, 72)/2,
+                         GetScreenHeight()/2 - 100, 72, RED);
+                DrawText(TextFormat("score %d", score), GetScreenWidth()/2 - 80,
+                         GetScreenHeight()/2, 30, RAYWHITE);
+                DrawText("ENTER = respawn   ESC = menu", GetScreenWidth()/2 - 190,
+                         GetScreenHeight()/2 + 70, 20, LIGHTGRAY);
+            }
         } else drawMenu();
         EndDrawing();
     }
     UnloadSound(sHit); UnloadSound(sKill); UnloadSound(sJump);
     UnloadSound(sShoot); UnloadSound(sReload);
+    UnloadTexture(pointsTex);
     CloseAudioDevice();
     CloseWindow();
     return 0;
