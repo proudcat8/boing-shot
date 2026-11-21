@@ -76,15 +76,4 @@ there is also a real wasm web build:
 ```sh
 bash web/build.sh
 ```
-
-that makes `web/dist/index.html` and `hail-the-capybara-web.zip`. upload the zip to itch.io as an HTML project, 1280x720, with "played in the browser" on. full itch steps are in `web/README.md`.
-
-made for haven hack club, delhi — https://hack.club/hv
-
-# where the stuff came from
-
-capybara bullet png came from pngimg, CC BY-NC 4.0, links are in `assets/CREDITS.txt`.
-
-snake model and textures came from the `assets/snake fxb.zip` and `assets/texture snake.rar` you gave me. fbx got converted to obj because this raylib build wont load fbx. the jpg textures got converted to png because progressive jpgs broke. no ai art or music.
-
 #HAVE FUN#
