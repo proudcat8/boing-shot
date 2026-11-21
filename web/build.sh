@@ -8,7 +8,7 @@ RAYLIB_SRC="${RAYLIB_SRC:-$CACHE/raylib-$RAYLIB_TAG}"
 RAYLIB_BUILD="${RAYLIB_BUILD:-$CACHE/raylib-$RAYLIB_TAG-build}"
 STAGE="$ROOT/web/stage"
 DIST="$ROOT/web/dist"
-OUT_ZIP="$ROOT/boing-shoot-web.zip"
+OUT_ZIP="$ROOT/hail-the-capybara-web.zip"
 
 if ! command -v emcc >/dev/null 2>&1; then
   EMSDK="${EMSDK:-/tmp/opencode/emsdk_install}"

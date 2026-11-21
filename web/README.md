@@ -15,7 +15,7 @@ bash web/build.sh
 It writes:
 
 - `web/dist/index.html` plus the `.js`, `.wasm` and `.data` files
-- `boing-shoot-web.zip` with `index.html` at the zip root, ready for itch.io
+- `hail-the-capybara-web.zip` with `index.html` at the zip root, ready for itch.io
 
 The build only preloads files the game actually uses at runtime. The FBX source, JPG originals, and zip/rar archives stay out of the web download.
 
@@ -36,7 +36,7 @@ Click the game once so the browser gives it mouse lock and audio. Press `esc` to
 1. Make a project on https://itch.io/game/new.
 2. Title: `Hail the capybara`.
 3. Kind of project: **HTML**.
-4. Upload `boing-shoot-web.zip` from the repo root.
+4. Upload `hail-the-capybara-web.zip` from the repo root.
 5. In the upload options, enable **This file will be played in the browser**.
 6. Set viewport size to **1280 x 720**. Turn on fullscreen button if you want it.
 7. Publish, then copy the embed URL from the project's **Embed** widget if you want to put it on the Hack Club page.

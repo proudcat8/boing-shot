@@ -61,11 +61,13 @@ top right minimap:
 from this folder:
 
 ```sh
-g++ -O2 main.cpp -o boing-shoot -lraylib -lm -lpthread -ldl
-./boing-shoot
+g++ -O2 main.cpp -o hail-the-capybara -lraylib -lm -lpthread -ldl
+./hail-the-capybara
 ```
 
-the tracked `boing-shoot` binary can also just be run. stay in this folder so `assets/` loads right.
+the tracked `hail-the-capybara` binary can also just be run. stay in this folder so `assets/` loads right.
+
+the github url still says `boing-shot` from the old name. that is just legacy plumbing, the game is **Hail the capybara**.
 
 # browser / itch.io
 
@@ -75,7 +77,7 @@ there is also a real wasm web build:
 bash web/build.sh
 ```
 
-that makes `web/dist/index.html` and `boing-shoot-web.zip`. upload the zip to itch.io as an HTML project, 1280x720, with "played in the browser" on. full itch steps are in `web/README.md`.
+that makes `web/dist/index.html` and `hail-the-capybara-web.zip`. upload the zip to itch.io as an HTML project, 1280x720, with "played in the browser" on. full itch steps are in `web/README.md`.
 
 made for haven hack club, delhi — https://hack.club/hv
 
