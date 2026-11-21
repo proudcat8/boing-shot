@@ -18,7 +18,7 @@ float t = 0, shake = 0;
 struct Player { Vector3 pos; float yaw, pitch, vy, fireT, reloadT, invuln; bool grounded; int ammo, hp; };
 struct Bullet { Vector3 pos, vel; float life; int bounces; bool alive, mine; };
 struct Spark  { Vector3 pos, vel; float life; Color c; };
-struct Hater  { Vector3 pos; float fireT, hurtT; int hp; bool alive; };
+struct Hater  { Vector3 pos; float fireT, hurtT, moveT, dir; int hp; bool alive; };
 struct Pickup { Vector3 pos; float spin; bool alive; };
 
 Player me;
@@ -33,7 +33,7 @@ float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT =
 const char *praiseMsg = "capybaras are perfect";
 const char *hurtMsg = "capybara bad";
 const char *bonusMsg = "+30";
-int kills = 0;
+int kills = 0, wave = 1;
 bool dead = false;
 
 BoundingBox map[] = {
@@ -80,17 +80,31 @@ bool nameUnavailable(const char *n) {
     return false;
 }
 
+// 1, 2, 4, 5 then keep 5, anymore felt mean
+int waveSize(int r) {
+    if (r == 1) return 1;
+    if (r == 2) return 2;
+    if (r == 3) return 4;
+    return 5;
+}
+
+void spawnRound() {
+    for (Hater &h : haters) h.alive = false;
+    if (mode == 1) return;      // online stays empty till netcode exists
+    Vector3 spots[] = {{0,0,-9}, {-7,0,-9}, {7,0,7}, {-8,0,6}, {8,0,-6}};
+    int n = waveSize(wave);
+    for (int i = 0; i < n; i++)
+        haters[i] = {spots[i], randf(1.0f, 2.6f), 0,
+                     randf(0.5f, 2.0f), randf(0, 6.28318f), 2, true};
+}
+
 void reset() {
     me = {{0, 0, 9}, 0, 0, 0, 0, 0, 0, true, 12, 100};
     for (Bullet &b : bullets) b.alive = false;
     for (Spark &s : sparks) s.life = 0;
     for (Pickup &p : pickups) p.alive = false;
-    // online mode stays empty till netcode exists
-    if (mode == 0) {
-        Vector3 spots[] = {{-7,0,-9}, {7,0,7}, {-8,0,6}, {8,0,-6}, {0,0,-9}};
-        for (int i = 0; i < NHATERS; i++)
-            haters[i] = {spots[i], randf(1.0f, 2.6f), 0, 2, true};
-    } else for (Hater &h : haters) h.alive = false;
+    wave = 1;
+    spawnRound();
     pointT = randf(0.5f, 1.5f);
     kills = 0;
     dead = false;
@@ -219,6 +233,18 @@ void update(float dt) {
         if (!h.alive) continue;
         h.fireT -= dt;
         h.hurtT -= dt;
+        // wander around, avoid the cover cubes
+        h.moveT -= dt;
+        if (h.moveT <= 0) { h.moveT = randf(1.0f, 2.5f); h.dir = randf(0, 6.28318f); }
+        Vector3 step = {sinf(h.dir) * 2.2f * dt, 0, cosf(h.dir) * 2.2f * dt};
+        Vector3 np = Vector3Add(h.pos, step);
+        np.x = Clamp(np.x, -A + 1, A - 1);
+        np.z = Clamp(np.z, -A + 1, A - 1);
+        bool stuck = false;
+        for (const BoundingBox &b : map)
+            if (np.x > b.min.x - 0.7f && np.x < b.max.x + 0.7f &&
+                np.z > b.min.z - 0.7f && np.z < b.max.z + 0.7f) stuck = true;
+        if (stuck) h.moveT = 0; else h.pos = np;
         if (h.fireT > 0) continue;
         h.fireT = randf(1.5f, 2.7f);
         for (Bullet &b : bullets) if (!b.alive) {
@@ -312,8 +338,13 @@ void update(float dt) {
         hurtMsgT = 0;
         SetSoundVolume(sKill, 0.9f); PlaySound(sKill);
     }
-    if (kills >= NHATERS && winT <= 0) winT = 3.0f;
-    if (winT > 0 && (winT -= dt) <= 0) reset();
+    // clear the round, then spawn the next bunch
+    if (kills >= waveSize(wave) && winT <= 0) winT = 2.5f;
+    if (winT > 0 && (winT -= dt) <= 0) {
+        wave++;
+        kills = 0;
+        spawnRound();
+    }
     for (Spark &s : sparks) {
         if (s.life <= 0) continue;
         s.life -= dt;
@@ -355,9 +386,14 @@ void drawWorld() {
         // tiny top hat, very serious hater
         DrawCube((Vector3){h.pos.x, 2.25f + bob, h.pos.z - 0.25f}, 0.5f, 0.25f, 0.45f, DARKGRAY);
         DrawCube((Vector3){h.pos.x, 2.4f + bob, h.pos.z - 0.25f}, 0.3f, 0.1f, 0.3f, DARKGRAY);
-        // mad little eyes
-        DrawCube((Vector3){h.pos.x - 0.17f, 1.93f + bob, h.pos.z - 0.57f}, 0.12f, 0.08f, 0.04f, RED);
-        DrawCube((Vector3){h.pos.x + 0.17f, 1.93f + bob, h.pos.z - 0.57f}, 0.12f, 0.08f, 0.04f, RED);
+        // mad little eyes, they watch you while wandering
+        Vector3 look = Vector3Normalize((Vector3){me.pos.x - h.pos.x + 0.001f, 0,
+                                                  me.pos.z - h.pos.z + 0.001f});
+        Vector3 side = {-look.z, 0, look.x};
+        Vector3 eyeMid = Vector3Add((Vector3){h.pos.x, 1.93f + bob, h.pos.z},
+                                    Vector3Scale(look, 0.57f));
+        DrawCube(Vector3Add(eyeMid, Vector3Scale(side, -0.17f)), 0.12f, 0.08f, 0.04f, RED);
+        DrawCube(Vector3Add(eyeMid, Vector3Scale(side,  0.17f)), 0.12f, 0.08f, 0.04f, RED);
     }
     // the png is a spinning quad out in the 3d world
     for (const Pickup &p : pickups) if (p.alive) {
@@ -412,7 +448,7 @@ void drawHateText() {
         DrawText(bonusMsg, GetScreenWidth()/2 + 24, GetScreenHeight()/2 + 26, 22,
                  Fade(WHITE, Clamp(bonusMsgT, 0, 1)));
     if (winT > 0) {
-        const char *w = "CAPYBARA WINS - more haters loading...";
+        const char *w = TextFormat("ROUND %d CLEARED - more haters loading...", wave);
         DrawText(w, GetScreenWidth()/2 - MeasureText(w, 30)/2,
                  GetScreenHeight()/2 - 140, 30, RAYWHITE);
     }
@@ -511,6 +547,8 @@ int main() {
                                 mode ? "ONLINE" : "BOTS", me.ammo), 20, 20, 20, RAYWHITE);
             // bots + netcode need
             DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
+            if (mode == 0)
+                DrawText(TextFormat("round %d", wave), 20, 75, 20, LIGHTGRAY);
             drawMinimap();
             if (dead) {
                 DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, 0.72f));
