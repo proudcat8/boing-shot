@@ -5,7 +5,7 @@
 #include <cstring>
 
 const int W = 1280, H = 720;
-const float A = 12.0f, WH = 6.0f, EH = 1.65f;
+const float A = 36.0f, WH = 6.0f, EH = 1.65f;
 
 enum Screen { S_NAME, S_MENU, S_DIFF, S_GAME };
 Screen screen = S_NAME;
@@ -31,6 +31,7 @@ Texture2D pointsTex;
 Model snakeModel;
 float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT = 0;
 float dashCd = 0, dashT = 0;
+Vector3 dashDir;
 const char *diffName[] = {"chill", "normal", "mean"};
 const char *praiseMsg = "capybaras are perfect";
 const char *hurtMsg = "capybara bad";
@@ -38,11 +39,24 @@ const char *bonusMsg = "+30";
 int kills = 0, wave = 1;
 bool dead = false;
 
+// map got 3x wider, so more boxes and dash has somewhere to go now
 BoundingBox map[] = {
-    {{-9,0,-2},{-2.5,3,-1}},  {{2.5,0,-2},{9,3,-1}},
-    {{-9,0,2},{-2.5,3,3}},    {{2.5,0,2},{9,3,3}},
-    {{-0.9,0,-6},{0.9,2,-4.2}},
-    {{-7,0,7},{-5,1.2,9}},    {{5,0,-9},{7,1.2,-7}}
+    {{-27,0,-6},{-7.5,3,-3}}, {{7.5,0,-6},{27,3,-3}},
+    {{-27,0,6},{-7.5,3,9}},   {{7.5,0,6},{27,3,9}},
+    {{-2.7,0,-18},{2.7,2,-12.6}},
+    {{-21,0,21},{-15,1.2,27}}, {{15,0,-27},{21,1.2,-21}},
+
+    {{-33,0,-33},{-28,2.4,-25}}, {{28,0,25},{33,2.4,33}},
+    {{-18,0,-33},{-12,3,-27}},   {{12,0,27},{18,3,33}},
+    {{-6,0,18},{6,1.2,24}},
+    {{-33,0,-12},{-27,2,-6}},    {{27,0,6},{33,2,12}},
+    {{-12,0,12},{-6,2.5,18}},    {{6,0,-12},{12,2.5,-6}},
+    {{-21,0,-12},{-15,1.5,-8}},  {{15,0,12},{21,1.5,16}},
+    {{-9,0,27},{-3,2,33}},       {{3,0,-33},{9,2,-27}},
+    {{-33,0,18},{-27,1.5,24}},   {{27,0,-18},{33,1.5,-12}},
+    {{-3,0,-27},{3,3,-21}},      {{-3,0,30},{3,2,34}},
+    {{-24,0,0},{-18,2.2,4}},     {{18,0,-12},{24,2.2,-8}},
+    {{-12,0,-21},{-7,1.2,-15}},  {{7,0,15},{12,1.2,21}}
 };
 const int NMAP = sizeof(map) / sizeof(map[0]);
 const int NHATERS = sizeof(haters) / sizeof(haters[0]);
@@ -100,7 +114,7 @@ int haterHpMax()   { return difficulty == 0 ? 1 : difficulty == 2 ? 3 : 2; }
 void spawnRound() {
     for (Hater &h : haters) h.alive = false;
     if (mode == 1) return;      // online stays empty till netcode exists
-    Vector3 spots[] = {{-4,0,-9}, {-7,0,-9}, {7,0,7}, {-8,0,6}, {8,0,-6}};
+    Vector3 spots[] = {{-24,0,-30}, {-30,0,-2}, {24,0,30}, {-24,0,30}, {30,0,-30}};
     int n = waveSize(wave);
     for (int i = 0; i < n; i++)
         haters[i] = {spots[i], randf(1.0f, 2.6f), 0,
@@ -123,6 +137,7 @@ void reset() {
     winT = 0;
     dashCd = 0;
     dashT = 0;
+    dashDir = {0,0,-1};
     cam = {{0, EH, 9}, {0, EH, 8}, {0, 1, 0}, 80, CAMERA_PERSPECTIVE};
 }
 
@@ -176,19 +191,20 @@ void update(float dt) {
     Vector3 f = {sinf(me.yaw), 0, -cosf(me.yaw)}, r = {cosf(me.yaw), 0, sinf(me.yaw)};
     if (dashT > 0) dashT -= dt;
     if (dashCd > 0) dashCd -= dt;
-    if (IsKeyPressed(KEY_LEFT_SHIFT) && dashCd <= 0) {
-        dashT = 0.18f;
-        dashCd = 3.0f;
-        SetSoundVolume(sDash, 0.4f); PlaySound(sDash);
-    }
     Vector3 move = {0,0,0};
     if (IsKeyDown(KEY_W)) move = Vector3Add(move, f);
     if (IsKeyDown(KEY_S)) move = Vector3Subtract(move, f);
     if (IsKeyDown(KEY_D)) move = Vector3Add(move, r);
     if (IsKeyDown(KEY_A)) move = Vector3Subtract(move, r);
-    if (dashT > 0) move = f;      // dash goes where you look
+    if (Vector3LengthSqr(move) > 0) move = Vector3Normalize(move);
+    if (IsKeyPressed(KEY_LEFT_SHIFT) && dashCd <= 0 && Vector3LengthSqr(move) > 0) {
+        dashDir = move;           // shift + wasd, not just where you look
+        dashT = 0.18f;
+        dashCd = 3.0f;
+        SetSoundVolume(sDash, 0.4f); PlaySound(sDash);
+    }
+    if (dashT > 0) move = dashDir;
     if (Vector3LengthSqr(move) > 0) {
-        move = Vector3Normalize(move);
         float sp = dashT > 0 ? 32 : 9;
         me.pos.x = Clamp(me.pos.x + move.x * sp * dt, -A + 0.5f, A - 0.5f);
         me.pos.z = Clamp(me.pos.z + move.z * sp * dt, -A + 0.5f, A - 0.5f);
@@ -321,12 +337,12 @@ void update(float dt) {
         pointT = randf(0.5f, 1.5f);
         if (GetRandomValue(0, 99) < 5)
             for (Pickup &p : pickups) if (!p.alive) {
-                for (int tries = 0; tries < 8; tries++) {
+                for (int tries = 0; tries < 12; tries++) {
                     p.pos = {randf(-A+1, A-1), 0.8f, randf(-A+1, A-1)};
                     bool blocked = false;
                     for (const BoundingBox &b : map)
-                        if (p.pos.x > b.min.x - 0.8f && p.pos.x < b.max.x + 0.8f &&
-                            p.pos.z > b.min.z - 0.8f && p.pos.z < b.max.z + 0.8f) blocked = true;
+                        if (p.pos.x > b.min.x - 1.0f && p.pos.x < b.max.x + 1.0f &&
+                            p.pos.z > b.min.z - 1.0f && p.pos.z < b.max.z + 1.0f) blocked = true;
                     if (!blocked) break;
                 }
                 p.spin = 0;
@@ -493,7 +509,7 @@ void drawMenu() {
         DrawText("2  online mode (name is reserved)", 84, 360, 26, RAYWHITE);
         if (nameTaken) DrawText("NAME UNAVAILABLE - pick another name", 84, 415, 22, RED);
         DrawText("backspace - change name", 84, 465, 20, LIGHTGRAY);
-        DrawText("WASD=move\n Left click= shoot\n R = reload\n SHIFT = dash", 84, 505, 18, LIGHTGRAY);
+        DrawText("WASD=move\n Left click= shoot\n R = reload\n SHIFT+WASD = dash", 84, 505, 18, LIGHTGRAY);
         DrawText("bot mode: kill the natural enemy of capybara. Snake", 84, 580, 18, LIGHTGRAY);
     }
 }
