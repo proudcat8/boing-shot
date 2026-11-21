@@ -46,12 +46,18 @@ if [[ -z "$RAYLIB_LIB" ]]; then
 fi
 
 rm -rf "$STAGE" "$DIST"
-mkdir -p "$STAGE/assets/snake/textures" "$DIST"
+mkdir -p "$STAGE/assets/snake/textures" "$STAGE/assets/character" "$DIST"
 
 FILES=(
   "assets/CREDITS.txt"
   "assets/capybara_bullet.png"
   "assets/points.png"
+  "assets/character/body.png"
+  "assets/character/jacket.png"
+  "assets/character/jeans.png"
+  "assets/character/shoes.png"
+  "assets/character/gloves.png"
+  "assets/character/backpack.png"
   "assets/hit.mp3"
   "assets/kill.mp3"
   "assets/jump.mp3"
@@ -69,7 +75,7 @@ done
 
 em++ -O2 -std=c++17 -DPLATFORM_WEB \
   -I"$RAYLIB_SRC/src" \
-  "$ROOT/main.cpp" "$RAYLIB_LIB" \
+  "$ROOT/main.cpp" "$RAYLIB_LIB" -lwebsocket.js \
   -s USE_GLFW=3 \
   -s ASYNCIFY=1 \
   -s ASYNCIFY_STACK_SIZE=65536 \

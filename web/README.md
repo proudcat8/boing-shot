@@ -31,6 +31,18 @@ Then open http://localhost:8000.
 
 Click the game once so the browser gives it mouse lock and audio. Press `esc` to give the mouse back.
 
+## Online rooms
+
+Start the relay on one machine:
+
+```sh
+python3 server.py
+```
+
+It listens on `8765` and speaks both raw tcp (native builds) and websocket text frames (this web build). In game pick `2` online mode, type the host, press enter. `localhost:8765` is the default and works when the page is served from local http on the same pc.
+
+Plain hosts like `example.com:8765` get `ws://` added on http pages and `wss://` on https pages. You can also type the full `ws://` or `wss://` url. itch.io pages are https, so internet play needs a public `wss://` relay; a plain `ws://` relay will be blocked by the browser.
+
 ## Upload to itch.io
 
 1. Make a project on https://itch.io/game/new.

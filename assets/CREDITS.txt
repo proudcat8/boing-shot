@@ -3,3 +3,8 @@ capybara_bullet.png
   direct: https://pngimg.com/uploads/capybara/capybara_PNG25.png
   license: CC BY-NC 4.0 - https://pngimg.com/license
   downloaded 2026-11-22, no edits
+
+character/*.png
+  source: base-color textures from the provided assets/chartexture.zip
+  matching unreal project: assets/charachter.zip
+  note: downscaled and averaged into a tiny billboard sprite for other players

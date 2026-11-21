@@ -1,1 +1,6 @@
 web/stage/
+Export/
+__pycache__/
+assets/charachter.zip
+assets/chartexture.zip
+screenshot000.png

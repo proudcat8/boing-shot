@@ -3,32 +3,59 @@
 #include "raymath.h"
 #include <cctype>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <sstream>
+#ifdef PLATFORM_WEB
+#include <emscripten/emscripten.h>
+#include <emscripten/websocket.h>
+EM_JS(int, capyHttps, (), { return window.location.protocol === "https:" ? 1 : 0; });
+#else
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <unistd.h>
+#include <fcntl.h>
+static int capyHttps() { return 0; }
+#endif
 
 const int W = 1280, H = 720;
 const float A = 36.0f, WH = 6.0f, EH = 1.65f;
 
-enum Screen { S_NAME, S_MENU, S_DIFF, S_GAME };
+enum Screen { S_NAME, S_MENU, S_DIFF, S_HOST, S_GAME };
 Screen screen = S_NAME;
-char pname[16] = "";
+char pname[16] = "", host[64] = "localhost:8765";
 int mode = 0, difficulty = 1;
 bool nameTaken = false;
 float t = 0, shake = 0;
 
 struct Player { Vector3 pos; float yaw, pitch, vy, fireT, reloadT, invuln; bool grounded; int ammo, hp; };
-struct Bullet { Vector3 pos, vel; float life; int bounces; bool alive, mine; };
+struct Bullet { Vector3 pos, vel; float life; int bounces, owner; bool alive, mine; };
 struct Spark  { Vector3 pos, vel; float life; Color c; };
 struct Hater  { Vector3 pos; float fireT, hurtT, moveT, dir; int hp; bool alive; };
 struct Pickup { Vector3 pos; float spin; bool alive; };
+struct NetPlayer { int id, hp; char name[16]; Vector3 pos; float yaw; bool alive; };
 
 Player me;
 Bullet bullets[100];
 Spark sparks[60];
 Hater haters[6];
 Pickup pickups[3];
+NetPlayer netPlayers[64];
 Camera3D cam;
 Sound sHit, sKill, sJump, sShoot, sReload, sDash;
-Texture2D pointsTex, bulletTex;
+Texture2D pointsTex, bulletTex, charTex;
 Model snakeModel;
+Color outfit[6];
+std::string netBuf;
+int myId = 0, netSock = -1;
+float netT = 0;
+bool netReady = false;
+#ifdef PLATFORM_WEB
+EMSCRIPTEN_WEBSOCKET_T ws = 0;
+#endif
 float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT = 0;
 float dashCd = 0, dashT = 0;
 Vector3 dashDir;
@@ -99,7 +126,172 @@ bool nameUnavailable(const char *n) {
     return false;
 }
 
-// 1, 2, 4, 5 then keep 5, 
+const char *outfitFiles[] = {
+    "assets/character/body.png", "assets/character/jacket.png", "assets/character/jeans.png",
+    "assets/character/shoes.png", "assets/character/gloves.png", "assets/character/backpack.png"
+};
+void makeCharTex() {
+    for (int i = 0; i < 6; i++) {
+        Image im = LoadImage(outfitFiles[i]);
+        Color sum = {0,0,0,0}; int n = 0;
+        for (int y = 0; y < im.height; y += 4) for (int x = 0; x < im.width; x += 4) {
+            Color c = GetImageColor(im, x, y);
+            sum.r += c.r; sum.g += c.g; sum.b += c.b; n++;
+        }
+        outfit[i] = {(unsigned char)(sum.r/n), (unsigned char)(sum.g/n), (unsigned char)(sum.b/n), 255};
+        UnloadImage(im);
+    }
+    Image s = GenImageColor(32, 48, {0,0,0,0});
+    ImageDrawRectangle(&s, 11, 2, 10, 8, outfit[0]);
+    ImageDrawRectangle(&s, 12, 9, 8, 3, outfit[0]);
+    ImageDrawRectangle(&s, 10, 11, 12, 15, outfit[1]);
+    ImageDrawRectangle(&s, 6, 12, 4, 13, outfit[1]);
+    ImageDrawRectangle(&s, 22, 12, 4, 13, outfit[1]);
+    ImageDrawRectangle(&s, 6, 25, 4, 5, outfit[4]);
+    ImageDrawRectangle(&s, 22, 25, 4, 5, outfit[4]);
+    ImageDrawRectangle(&s, 11, 26, 4, 14, outfit[2]);
+    ImageDrawRectangle(&s, 17, 26, 4, 14, outfit[2]);
+    ImageDrawRectangle(&s, 10, 40, 5, 6, outfit[3]);
+    ImageDrawRectangle(&s, 17, 40, 5, 6, outfit[3]);
+    ImageDrawRectangle(&s, 12, 12, 8, 10, outfit[5]);
+    charTex = LoadTextureFromImage(s);
+    UnloadImage(s);
+}
+
+#ifdef PLATFORM_WEB
+EM_BOOL wsOpen(int, const EmscriptenWebSocketOpenEvent *, void *) { netReady = true; return true; }
+EM_BOOL wsMsg(int, const EmscriptenWebSocketMessageEvent *e, void *) {
+    if (e->isText) for (int i = 0; i < e->numBytes; i++) {
+        char c = ((const char *)e->data)[i];
+        if (c) netBuf += c;
+    }
+    return true;
+}
+EM_BOOL wsClose(int, const EmscriptenWebSocketCloseEvent *, void *) { netReady = false; return true; }
+#endif
+
+std::string netUrl() {
+    std::string u = host[0] ? host : "localhost:8765";
+    if (u.rfind("ws://", 0) != 0 && u.rfind("wss://", 0) != 0)
+        u = std::string(capyHttps() ? "wss://" : "ws://") + u;
+    if (u.find(':', u.find("://") + 3) == std::string::npos) u += ":8765";
+    return u;
+}
+
+void netConnect() {
+    netBuf.clear(); netReady = false; myId = 0; netT = 0;
+    for (NetPlayer &p : netPlayers) p.alive = false;
+    std::string u = netUrl();
+#ifdef PLATFORM_WEB
+    EmscriptenWebSocketCreateAttributes a;
+    emscripten_websocket_init_create_attributes(&a);
+    a.url = u.c_str(); a.createOnMainThread = true;
+    ws = emscripten_websocket_new(&a);
+    if (ws > 0) {
+        emscripten_websocket_set_onopen_callback(ws, NULL, wsOpen);
+        emscripten_websocket_set_onmessage_callback(ws, NULL, wsMsg);
+        emscripten_websocket_set_onclose_callback(ws, NULL, wsClose);
+    }
+#else
+    std::string hp = u.substr(u.find("://") + 3);
+    size_t colon = hp.find(':');
+    std::string hn = hp.substr(0, colon);
+    int port = colon == std::string::npos ? 8765 : atoi(hp.c_str() + colon + 1);
+    netSock = socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET; addr.sin_port = htons(port);
+    if (!inet_pton(AF_INET, hn.c_str(), &addr.sin_addr)) {
+        hostent *he = gethostbyname(hn.c_str());
+        if (he) memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
+    }
+    if (connect(netSock, (sockaddr *)&addr, sizeof(addr)) == 0) {
+        int flags = fcntl(netSock, F_GETFL, 0);
+        fcntl(netSock, F_SETFL, flags | O_NONBLOCK);
+        netReady = true;
+    } else { close(netSock); netSock = -1; }
+#endif
+}
+
+void netSend(const char *s) {
+#ifdef PLATFORM_WEB
+    if (ws > 0 && netReady) emscripten_websocket_send_utf8_text(ws, s);
+#else
+    if (netSock >= 0) send(netSock, s, strlen(s), 0);
+#endif
+}
+
+void netClose() {
+#ifdef PLATFORM_WEB
+    if (ws > 0) emscripten_websocket_close(ws, 1000, "bye");
+#else
+    if (netSock >= 0) close(netSock);
+#endif
+    netSock = -1; netReady = false;
+}
+
+void remoteShot(int id, Vector3 p, Vector3 v) {
+    for (Bullet &b : bullets) if (!b.alive) {
+        b = {p, v, 7, 0, id, true, false};
+        return;
+    }
+}
+
+void netLine(std::string s) {
+    std::istringstream in(s);
+    char tag = 0;
+    in >> tag;
+    if (tag == 'W') {
+        in >> myId;
+        float a = (myId - 1) * 2.39996f;
+        me.pos = {cosf(a) * 5, 0, 9 + sinf(a) * 5};
+    } else if (tag == 'P') {
+        int id, hp; char nm[16]; float x, y, z, yaw;
+        in >> id >> nm >> x >> y >> z >> yaw >> hp;
+        if (id < 0 || id >= 64) return;
+        NetPlayer &p = netPlayers[id];
+        p.id = id; p.hp = hp; p.pos = {x,y,z}; p.yaw = yaw; p.alive = true;
+        snprintf(p.name, sizeof(p.name), "%s", nm);
+        if (id == myId) me.hp = hp;
+    } else if (tag == 'X') {
+        int id; in >> id;
+        if (id >= 0 && id < 64) netPlayers[id].alive = false;
+    } else if (tag == 'F') {
+        int id; float x, y, z, dx, dy, dz;
+        in >> id >> x >> y >> z >> dx >> dy >> dz;
+        remoteShot(id, {x,y,z}, Vector3Scale(Vector3Normalize({dx,dy,dz}), 36));
+    } else if (tag == 'D') {
+        int id; in >> id;
+        if (id == myId) { hurtMsg = "capybara got hit"; hurtMsgT = 1.0f; shake = 0.2f; }
+    }
+}
+
+void netUpdate(float dt) {
+#ifdef PLATFORM_WEB
+#else
+    if (netSock >= 0) {
+        char b[2048];
+        int n = recv(netSock, b, sizeof(b), 0);
+        if (n > 0) netBuf.append(b, n);
+        else if (n == 0) netReady = false;
+    }
+#endif
+    size_t nl;
+    while ((nl = netBuf.find('\n')) != std::string::npos) {
+        std::string line = netBuf.substr(0, nl);
+        netBuf.erase(0, nl + 1);
+        if (!line.empty()) netLine(line);
+    }
+    netT -= dt;
+    if (netReady && myId && netT <= 0) {
+        netT = 0.08f;
+        char b[160];
+        snprintf(b, sizeof(b), "S %d %s %.2f %.2f %.2f %.2f %d\n", myId, pname,
+                 me.pos.x, me.pos.y, me.pos.z, me.yaw, me.hp);
+        netSend(b);
+    }
+}
+
+// 1, 2, 4, 6 then keep 6
 int waveSize(int r) {
     if (r == 1) return 1;
     if (r == 2) return 2;
@@ -117,7 +309,7 @@ int haterHpMax()   { return difficulty == 0 ? 1 : difficulty == 2 ? 3 : 2; }
 
 void spawnRound() {
     for (Hater &h : haters) h.alive = false;
-    if (mode == 1) return;      // online stays empty till netcode exists
+    if (mode == 1) return;      // online has real players
     Vector3 spots[] = {{-24,0,-30}, {-30,0,-2}, {24,0,30}, {-24,0,30}, {30,0,-30}, {-30,0,30}};
     int n = waveSize(wave);
     for (int i = 0; i < n; i++)
@@ -238,10 +430,16 @@ void update(float dt) {
         for (Bullet &b : bullets) if (!b.alive) {
             Vector3 d = {sinf(me.yaw)*cosf(me.pitch), sinf(me.pitch), -cosf(me.yaw)*cosf(me.pitch)};
             b = {Vector3Add((Vector3){me.pos.x, me.pos.y + EH, me.pos.z}, Vector3Scale(d, 0.5f)),
-                 Vector3Scale(d, 36), 4, 0, true, true};
+                 Vector3Scale(d, 36), 4, 0, myId, true, true};
             me.ammo--; me.fireT = 0.14f;
             shake = 0.08f;
             sfx(sShoot, 0.6f);
+            if (mode == 1) {
+                char msg[128];
+                snprintf(msg, sizeof(msg), "F %d %.2f %.2f %.2f %.2f %.2f %.2f\n", myId,
+                         b.pos.x, b.pos.y, b.pos.z, d.x, d.y, d.z);
+                netSend(msg);
+            }
             break;
         }
     }
@@ -267,7 +465,7 @@ void update(float dt) {
             dir.x += randf(-0.07f, 0.07f);
             dir = Vector3Normalize(dir);
             b = {Vector3Add(from, Vector3Scale(dir, 0.6f)), Vector3Scale(dir, haterShotSp()),
-                 7, 0, true, false};
+                 7, 0, -2, true, false};
             break;
         }
     }
@@ -300,6 +498,15 @@ void update(float dt) {
                 }
                 break;
             }
+            if (mode == 1 && b.owner == myId) for (NetPlayer &p : netPlayers)
+                if (b.alive && p.alive && p.id != myId && p.hp > 0 &&
+                    Vector3DistanceSqr(b.pos, (Vector3){p.pos.x, p.pos.y + 1, p.pos.z}) < 0.8f * 0.8f) {
+                    b.alive = false;
+                    char msg[32];
+                    snprintf(msg, sizeof(msg), "H %d %d\n", myId, p.id);
+                    netSend(msg);
+                    break;
+                }
             //own shots damage after they bounce once
             Vector3 body = {me.pos.x, me.pos.y + 1, me.pos.z};
             if (me.invuln <= 0 && Vector3DistanceSqr(body, b.pos) < 0.8f * 0.8f &&
@@ -309,6 +516,11 @@ void update(float dt) {
                 if (!b.mine) {
                     hurtMsg = insults[GetRandomValue(0, NINSULT - 1)];
                     hurtMsgT = 1.1f;
+                    if (mode == 1 && b.owner >= 0) {
+                        char msg[32];
+                        snprintf(msg, sizeof(msg), "H %d %d\n", myId, b.owner);
+                        netSend(msg);
+                    }
                 }
                 shake = 0.25f;
             }
@@ -396,10 +608,21 @@ void drawWorld() {
                          (Vector2){0.5f, 0.5f}, p.spin, WHITE);
     }
     Rectangle bs = {0, 0, (float)bulletTex.width, (float)bulletTex.height};
+    Rectangle cs = {0, 0, (float)charTex.width, (float)charTex.height};
+    for (const NetPlayer &p : netPlayers) if (p.alive && p.id != myId && p.hp > 0) {
+        Vector3 at = {p.pos.x, p.pos.y + 0.98f, p.pos.z};
+        DrawBillboardPro(cam, charTex, cs, at, (Vector3){0,1,0},
+                         (Vector2){1.25f, 1.875f}, (Vector2){0.5f,0.5f}, 0, WHITE);
+        Vector3 gd = {sinf(p.yaw), 0, -cosf(p.yaw)};
+        Vector3 gp = {p.pos.x + gd.x * 0.72f, p.pos.y + 1.18f, p.pos.z + gd.z * 0.72f};
+        DrawBillboardPro(cam, bulletTex, bs, gp, (Vector3){0,1,0},
+                         (Vector2){0.62f, 0.62f}, (Vector2){0.5f,0.5f}, 0, WHITE);
+    }
     for (const Bullet &b : bullets) {
         if (!b.alive) continue;
-        Color trail = b.mine ? (Color){210, 170, 110, 255} : RED;
-        Color tint = b.mine ? WHITE : RED;
+        bool mean = mode == 0 && !b.mine;
+        Color trail = mean ? RED : (Color){210, 170, 110, 255};
+        Color tint = mean ? RED : WHITE;
         DrawLine3D(Vector3Subtract(b.pos, Vector3Scale(Vector3Normalize(b.vel), 0.8f)), b.pos, trail);
         DrawBillboardPro(cam, bulletTex, bs, b.pos, (Vector3){0,1,0},
                          (Vector2){0.72f, 0.72f}, (Vector2){0.5f,0.5f}, 0, tint);
@@ -428,6 +651,9 @@ void drawHateText() {
     };
     for (const Hater &h : haters) if (h.alive)
         tag((Vector3){h.pos.x, 2.2f, h.pos.z}, "your ex", 18, LIGHTGRAY);
+    for (const NetPlayer &p : netPlayers) if (p.alive && p.id != myId && p.hp > 0)
+        tag((Vector3){p.pos.x, p.pos.y + 2.25f, p.pos.z},
+            TextFormat("%s %d", p.name, p.hp), 16, RAYWHITE);
     if (praiseMsgT > 0)
         ctext(praiseMsg, GetScreenHeight()/2 - 20, 36, Fade(WHITE, Clamp(praiseMsgT, 0, 1)));
     if (hurtMsgT > 0)
@@ -451,6 +677,8 @@ void drawMinimap() {
                       py(b.max.z)-py(b.min.z), Fade(GRAY, 0.9f));
     auto dot = [&](float x, float z, Color c, int r) { DrawCircle(px(x), py(z), r, c); };
     for (const Hater &h : haters) if (h.alive) dot(h.pos.x, h.pos.z, RED, 4);
+    for (const NetPlayer &p : netPlayers) if (p.alive && p.id != myId && p.hp > 0)
+        dot(p.pos.x, p.pos.z, (Color){230, 140, 215, 255}, 4);
     for (const Pickup &p : pickups) if (p.alive) dot(p.pos.x, p.pos.z, LIGHTGRAY, 2);
     dot(me.pos.x, me.pos.z, RAYWHITE, 4);
     DrawLine(px(me.pos.x), py(me.pos.z),
@@ -471,10 +699,16 @@ void drawMenu() {
         DrawText("2  normal  - the usual", 84, 360, 24, RAYWHITE);
         DrawText("3  mean    - fast angry haters", 84, 400, 24, RAYWHITE);
         DrawText("backspace - back", 84, 470, 20, LIGHTGRAY);
+    } else if (screen == S_HOST) {
+        DrawText("room host", 84, 250, 36, RAYWHITE);
+        DrawText(TextFormat("%s_", host[0] ? host : "localhost:8765"), 84, 310, 26, RAYWHITE);
+        DrawText("localhost:8765 = same pc · type a host or ws:// / wss:// url", 84, 360, 18, LIGHTGRAY);
+        DrawText("enter = join · esc = back", 84, 410, 20, LIGHTGRAY);
+        DrawText("run server.py on the host first", 84, 460, 18, LIGHTGRAY);
     } else {
         DrawText(TextFormat("name: %s", pname), 84, 250, 28, RAYWHITE);
         DrawText("1  bot mode   (any name)", 84, 320, 26, RAYWHITE);
-        DrawText("2  online mode (name is reserved)", 84, 360, 26, RAYWHITE);
+        DrawText("2  online mode (play with friends)", 84, 360, 26, RAYWHITE);
         if (nameTaken) DrawText("NAME UNAVAILABLE - pick another name", 84, 415, 22, RED);
         DrawText("backspace - change name", 84, 465, 20, LIGHTGRAY);
         DrawText("WASD=move\n Left click= shoot\n R = reload\n SHIFT+WASD = dash", 84, 505, 18, LIGHTGRAY);
@@ -495,6 +729,7 @@ int main() {
     sDash = LoadSound("assets/dash.mp3");
     pointsTex = LoadTexture("assets/points.png");
     bulletTex = LoadTexture("assets/capybara_bullet.png");
+    makeCharTex();
     snakeModel = LoadModel("assets/snake/Snake.obj");
     SetTargetFPS(120);
     SetExitKey(KEY_NULL);
@@ -518,15 +753,28 @@ int main() {
             }
         } else if (screen == S_MENU) {
             if (IsKeyPressed(KEY_ONE)) { mode = 0; screen = S_DIFF; }
-            if (IsKeyPressed(KEY_TWO) && !nameTaken) { mode = 1; reset(); screen = S_GAME; }
+            if (IsKeyPressed(KEY_TWO) && !nameTaken) { mode = 1; host[0] = 0; screen = S_HOST; }
             if (IsKeyPressed(KEY_BACKSPACE)) screen = S_NAME;
         } else if (screen == S_DIFF) {
             int keys[] = {KEY_ONE, KEY_TWO, KEY_THREE};
             for (int i = 0; i < 3; i++)
                 if (IsKeyPressed(keys[i])) { difficulty = i; reset(); screen = S_GAME; }
             if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
+        } else if (screen == S_HOST) {
+            for (int c = GetCharPressed(); c; c = GetCharPressed())
+                if ((isalnum(c) || c == '.' || c == ':' || c == '/' || c == '-') && strlen(host) < 63) {
+                    size_t n = strlen(host);
+                    host[n] = (char)c; host[n+1] = 0;
+                }
+            if (IsKeyPressed(KEY_BACKSPACE) && strlen(host)) host[strlen(host)-1] = 0;
+            if (IsKeyPressed(KEY_ENTER)) { reset(); netConnect(); screen = S_GAME; }
+            if (IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
         } else {
-            if (IsKeyPressed(KEY_ESCAPE)) { screen = S_MENU; dead = false; }
+            if (mode == 1) netUpdate(dt);
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                if (mode == 1) netClose();
+                screen = S_MENU; dead = false;
+            }
             if (dead) {
                 if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_R)) reset();
             } else update(dt);
@@ -540,12 +788,20 @@ int main() {
             EndMode3D();
             drawCrosshair();
             drawHateText();
-            DrawText(TextFormat("%s  |  %s  |  %s  |  ammo %d", pname,
-                                mode ? "ONLINE" : "BOTS", diffName[difficulty], me.ammo),
+            DrawText(TextFormat("%s  |  %s  |  ammo %d", pname,
+                                mode ? "ONLINE" : diffName[difficulty], me.ammo),
                      20, 20, 20, RAYWHITE);
             DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
             if (mode == 0)
                 DrawText(TextFormat("round %d", wave), 20, 75, 20, LIGHTGRAY);
+            else {
+                int peers = 0;
+                for (const NetPlayer &p : netPlayers) if (p.alive && p.id != myId) peers++;
+                const char *st = !netReady ? "no room - start server.py" :
+                    (!myId ? "connecting..." : TextFormat("room %s | id %d | %d other capybara(s)",
+                       host[0] ? host : "localhost:8765", myId, peers));
+                DrawText(st, 20, 75, 16, LIGHTGRAY);
+            }
             DrawText("dash", 20, 100, 16, LIGHTGRAY);
             DrawRectangle(66, 102, 120, 12, Fade(BLACK, 0.6f));
             DrawRectangle(66, 102, (int)(120 * (1 - dashCd / 3.0f)), 12,
@@ -565,7 +821,8 @@ int main() {
     UnloadSound(sHit); UnloadSound(sKill); UnloadSound(sJump);
     UnloadSound(sShoot); UnloadSound(sReload); UnloadSound(sDash);
     UnloadModel(snakeModel);
-    UnloadTexture(pointsTex); UnloadTexture(bulletTex);
+    UnloadTexture(pointsTex); UnloadTexture(bulletTex); UnloadTexture(charTex);
+    netClose();
     CloseAudioDevice();
     CloseWindow();
     return 0;
