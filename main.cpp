@@ -110,7 +110,7 @@ int waveSize(int r) {
 
 // difficulty changes the haters, not just the menu text
 float haterMoveSp() { return difficulty == 0 ? 1.5f : difficulty == 2 ? 3.1f : 2.2f; }
-float haterShotSp() { return difficulty == 0 ? 11 : difficulty == 2 ? 19 : 15; }
+float haterShotSp() { return difficulty == 0 ? 8 : difficulty == 2 ? 14 : 11; }
 float haterFireLo() { return difficulty == 0 ? 2.4f : difficulty == 2 ? 0.8f : 1.5f; }
 float haterFireHi() { return difficulty == 0 ? 3.8f : difficulty == 2 ? 1.6f : 2.7f; }
 int haterHpMax()   { return difficulty == 0 ? 1 : difficulty == 2 ? 3 : 2; }
@@ -236,7 +236,7 @@ void update(float dt) {
         for (Bullet &b : bullets) if (!b.alive) {
             Vector3 d = {sinf(me.yaw)*cosf(me.pitch), sinf(me.pitch), -cosf(me.yaw)*cosf(me.pitch)};
             b = {Vector3Add((Vector3){me.pos.x, me.pos.y + EH, me.pos.z}, Vector3Scale(d, 0.5f)),
-                 Vector3Scale(d, 55), 4, 0, true, true};
+                 Vector3Scale(d, 36), 4, 0, true, true};
             me.ammo--; me.fireT = 0.14f;
             shake = 0.08f;
             sfx(sShoot, 0.6f);
