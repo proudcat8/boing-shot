@@ -1,4 +1,4 @@
-// Hail the capybara - haters shoot red bullets, you shoot them down lol
+// Hail the capybara - your ex shoots red bullets, you shoot it down lol
 #include "raylib.h"
 #include "raymath.h"
 #include <cctype>
@@ -27,8 +27,8 @@ Hater haters[5];
 Pickup pickups[3];
 Camera3D cam;
 Sound sHit, sKill, sJump, sShoot, sReload, sDash;
-Texture2D pointsTex, catTex;
-Model catModel;
+Texture2D pointsTex;
+Model snakeModel;
 float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT = 0;
 float dashCd = 0, dashT = 0;
 const char *diffName[] = {"chill", "normal", "mean"};
@@ -388,13 +388,13 @@ void drawWorld() {
         DrawCubeV(c, s, (Color){35, 85, 50, 255});      // dark green boxes
         DrawCubeWiresV(c, s, (Color){100, 160, 110, 255});
     }
-    // cats are the natural preditors of capybaras. model front is +z
+    // snakes are the natural enemy of capybaras. show them side on
     for (const Hater &h : haters) if (h.alive) {
         float bob = sinf(t * 4 + h.pos.x) * 0.05f;
         float face = atan2f(me.pos.x - h.pos.x, me.pos.z - h.pos.z) * RAD2DEG;
         Color skin = h.hurtT > 0 ? RED : WHITE;
-        DrawModelEx(catModel, (Vector3){h.pos.x, 0.1f + bob, h.pos.z},
-                    (Vector3){0, 1, 0}, face, (Vector3){5, 5, 5}, skin);
+        DrawModelEx(snakeModel, (Vector3){h.pos.x, 0.05f + bob, h.pos.z},
+                    (Vector3){0, 1, 0}, face + 90, (Vector3){0.2f, 0.2f, 0.2f}, skin);
     }
     for (const Pickup &p : pickups) if (p.alive) {
         Vector3 at = {p.pos.x, p.pos.y + sinf(t * 3 + p.pos.x) * 0.15f, p.pos.z};
@@ -433,7 +433,7 @@ void drawHateText() {
         DrawText(say, (int)s.x - MeasureText(say, fs)/2, (int)s.y - fs/2, fs, c);
     };
     for (const Hater &h : haters) if (h.alive)
-        tag((Vector3){h.pos.x, 2.75f, h.pos.z}, "capybara hater", 14, LIGHTGRAY);
+        tag((Vector3){h.pos.x, 2.2f, h.pos.z}, "your ex", 18, LIGHTGRAY);
     if (praiseMsgT > 0) {
         int fs = 36;
         DrawText(praiseMsg, GetScreenWidth()/2 - MeasureText(praiseMsg, fs)/2,
@@ -494,7 +494,7 @@ void drawMenu() {
         if (nameTaken) DrawText("NAME UNAVAILABLE - pick another name", 84, 415, 22, RED);
         DrawText("backspace - change name", 84, 465, 20, LIGHTGRAY);
         DrawText("WASD=move\n Left click= shoot\n R = reload\n SHIFT = dash", 84, 505, 18, LIGHTGRAY);
-        DrawText("bot mode: delete the capybara haters", 84, 580, 18, LIGHTGRAY);
+        DrawText("bot mode: kill the natural enemy of capybara. Snake", 84, 580, 18, LIGHTGRAY);
     }
 }
 
@@ -510,22 +510,7 @@ int main() {
     sReload = LoadSound("assets/reload.mp3");
     sDash = LoadSound("assets/dash.mp3");
     pointsTex = LoadTexture("assets/points.png");
-    catModel = LoadModel("assets/cat/Cat Curious Pose.obj");
-    // zip had no textures, paint a quick tabby pattern on the cat
-    Image fur = GenImageColor(128, 128, (Color){195, 135, 70, 255});
-    for (int y = 0; y < 128; y++) {
-        int band = (int)((y + 6 * sinf(y * 0.13f)) / 13);
-        Color stripe = (band % 2 == 0) ? (Color){105, 65, 35, 255}
-                                       : (Color){195, 135, 70, 255};
-        for (int x = 0; x < 128; x++) ImageDrawPixel(&fur, x, y, stripe);
-    }
-    ImageDrawRectangle(&fur, 0, 103, 128, 25, (Color){225, 195, 150, 255});
-    catTex = LoadTextureFromImage(fur);
-    UnloadImage(fur);
-    for (int i = 0; i < catModel.materialCount; i++) {
-        SetMaterialTexture(&catModel.materials[i], MATERIAL_MAP_DIFFUSE, catTex);
-        catModel.materials[i].maps[MATERIAL_MAP_DIFFUSE].color = WHITE;
-    }
+    snakeModel = LoadModel("assets/snake/Snake.obj");   // fbx converted to obj, texture is in the folder
     SetTargetFPS(120);
     SetExitKey(KEY_NULL);
     reset();
@@ -597,8 +582,7 @@ int main() {
     }
     UnloadSound(sHit); UnloadSound(sKill); UnloadSound(sJump);
     UnloadSound(sShoot); UnloadSound(sReload); UnloadSound(sDash);
-    UnloadModel(catModel);
-    UnloadTexture(catTex);
+    UnloadModel(snakeModel);
     UnloadTexture(pointsTex);
     CloseAudioDevice();
     CloseWindow();
