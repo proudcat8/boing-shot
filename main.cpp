@@ -1,4 +1,4 @@
-// capybara haters shoot red bullets, you shoot them down lol
+// Hail the capybara - haters shoot red bullets, you shoot them down lol
 // still no netcode or proper textures yet
 #include "raylib.h"
 #include "raymath.h"
@@ -32,8 +32,8 @@ Texture2D pointsTex;
 float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT = 0;
 const char *praiseMsg = "capybaras are perfect";
 const char *hurtMsg = "capybara bad";
-const char *bonusMsg = "+5";
-int kills = 0, score = 0;
+const char *bonusMsg = "+30";
+int kills = 0;
 bool dead = false;
 
 BoundingBox map[] = {
@@ -85,12 +85,14 @@ void reset() {
     for (Bullet &b : bullets) b.alive = false;
     for (Spark &s : sparks) s.life = 0;
     for (Pickup &p : pickups) p.alive = false;
-    Vector3 spots[] = {{-7,0,-9}, {7,0,7}, {-8,0,6}, {8,0,-6}, {0,0,-9}};
-    for (int i = 0; i < NHATERS; i++)
-        haters[i] = {spots[i], randf(1.0f, 2.6f), 0, 2, true};
+    // online mode stays empty till netcode exists
+    if (mode == 0) {
+        Vector3 spots[] = {{-7,0,-9}, {7,0,7}, {-8,0,6}, {8,0,-6}, {0,0,-9}};
+        for (int i = 0; i < NHATERS; i++)
+            haters[i] = {spots[i], randf(1.0f, 2.6f), 0, 2, true};
+    } else for (Hater &h : haters) h.alive = false;
     pointT = randf(0.5f, 1.5f);
     kills = 0;
-    score = 0;
     dead = false;
     praiseMsgT = 0;
     hurtMsgT = 0;
@@ -251,7 +253,7 @@ void update(float dt) {
                 b.alive = false; h.hp--; h.hurtT = 0.12f;
                 SetSoundVolume(sHit, 0.8f); PlaySound(sHit);
                 if (h.hp <= 0) {
-                    h.alive = false; kills++; score += 1;
+                    h.alive = false; kills++;
                     Vector3 at = {h.pos.x, 1.2f, h.pos.z};
                     burst(at);
                     for (int q = 0; q < 6; q++) emit(at, RED, 4, 0.6f);
@@ -267,13 +269,16 @@ void update(float dt) {
                 (!b.mine || b.bounces > 0)) {
                 b.alive = false;
                 me.hp -= 10; me.invuln = 0.4f;
-                hurtMsg = insults[GetRandomValue(0, NINSULT - 1)];
-                hurtMsgT = 1.1f;
+                // only enemy bullets talk trash, my own bounce just hurts
+                if (!b.mine) {
+                    hurtMsg = insults[GetRandomValue(0, NINSULT - 1)];
+                    hurtMsgT = 1.1f;
+                }
                 shake = 0.25f;
             }
         }
     }
-    // points.png pickups: 5% roll, random regen time, max 3 out
+    // points.png pickups heal +30, 5% roll, random regen, max 3 out
     pointT -= dt;
     if (pointT <= 0) {
         pointT = randf(0.5f, 1.5f);
@@ -296,7 +301,8 @@ void update(float dt) {
         p.spin += dt * 1.5f;
         if (Vector3DistanceSqr(p.pos, (Vector3){me.pos.x, me.pos.y + 1, me.pos.z}) < 1.1f * 1.1f) {
             p.alive = false;
-            score += 5;
+            me.hp += 30;
+            if (me.hp > 100) me.hp = 100;
             bonusMsgT = 1.2f;
             SetSoundVolume(sJump, 0.5f); PlaySound(sJump);
         }
@@ -430,12 +436,12 @@ void drawMinimap() {
     DrawLine(mx + (me.pos.x + A) / (2*A) * ms, my + (me.pos.z + A) / (2*A) * ms,
              mx + (me.pos.x + sinf(me.yaw) * 2 + A) / (2*A) * ms,
              my + (me.pos.z - cosf(me.yaw) * 2 + A) / (2*A) * ms, RAYWHITE);
-    DrawText("haters", mx, my + ms + 8, 14, LIGHTGRAY);
+    DrawText(mode ? "players" : "haters", mx, my + ms + 8, 14, LIGHTGRAY);
 }
 
 void drawMenu() {
     ClearBackground(DARKGRAY);
-    DrawText("BOING SHOOT", 80, 90, 64, RAYWHITE);
+    DrawText("Hail the capybara", 80, 90, 56, RAYWHITE);
     DrawText("bounce back - bullets go brrr", 84, 165, 20, LIGHTGRAY);
     if (screen == S_NAME) {
         DrawText(TextFormat("name: %s_", pname), 84, 250, 32, RAYWHITE);
@@ -447,12 +453,12 @@ void drawMenu() {
         if (nameTaken) DrawText("NAME UNAVAILABLE - pick another name", 84, 415, 22, RED);
         DrawText("backspace - change name", 84, 465, 20, LIGHTGRAY);
         DrawText("WASD=move\n Left click= shoot\n R = reload", 84, 505, 18, LIGHTGRAY);
-        DrawText("goal: delete the capybara haters", 84, 580, 18, LIGHTGRAY);
+        DrawText("bot mode: delete the capybara haters", 84, 580, 18, LIGHTGRAY);
     }
 }
 
 int main() {
-    InitWindow(W, H, "BOING SHOOT");
+    InitWindow(W, H, "Hail the capybara");
     //bot adn multiplauer not done
     DisableCursor();
     InitAudioDevice();
@@ -501,8 +507,8 @@ int main() {
             EndMode3D();
             drawCrosshair();
             drawHateText();
-            DrawText(TextFormat("%s  |  %s  |  score %d  |  ammo %d  |  haters %d/%d  |  K = fx", pname,
-                                mode ? "ONLINE" : "BOTS", score, me.ammo, kills, NHATERS), 20, 20, 20, RAYWHITE);
+            DrawText(TextFormat("%s  |  %s  |  ammo %d  |  K = fx", pname,
+                                mode ? "ONLINE" : "BOTS", me.ammo), 20, 20, 20, RAYWHITE);
             // bots + netcode need
             DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
             drawMinimap();
@@ -511,10 +517,8 @@ int main() {
                 const char *d = "U DIED";
                 DrawText(d, GetScreenWidth()/2 - MeasureText(d, 72)/2,
                          GetScreenHeight()/2 - 100, 72, RED);
-                DrawText(TextFormat("score %d", score), GetScreenWidth()/2 - 80,
-                         GetScreenHeight()/2, 30, RAYWHITE);
                 DrawText("ENTER = respawn   ESC = menu", GetScreenWidth()/2 - 190,
-                         GetScreenHeight()/2 + 70, 20, LIGHTGRAY);
+                         GetScreenHeight()/2 + 20, 20, LIGHTGRAY);
             }
         } else drawMenu();
         EndDrawing();

@@ -1,4 +1,4 @@
-It is a game built to induce pure fun and bOIngGgGg
+Hail the capybara - a game built to induce pure fun
 
 The game is purely hardcoded in cpp without a game editor
 
