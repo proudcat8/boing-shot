@@ -31,17 +31,11 @@ Then open http://localhost:8000.
 
 Click the game once so the browser gives it mouse lock and audio. Press `esc` to give the mouse back.
 
-## Online rooms
+## Multiplayer
 
-Start the relay on one machine:
+The web build is solo only. Browsers cannot open a listening socket, so they cannot host a LAN relay.
 
-```sh
-python3 server.py
-```
-
-It listens on `8765` and speaks both raw tcp (native builds) and websocket text frames (this web build). In game pick `2` online mode, type the host, press enter. `localhost:8765` is the default and works when the page is served from local http on the same pc.
-
-Plain hosts like `example.com:8765` get `ws://` added on http pages and `wss://` on https pages. You can also type the full `ws://` or `wss://` url. itch.io pages are https, so internet play needs a public `wss://` relay; a plain `ws://` relay will be blocked by the browser.
+Pick `2` lan mode in the web build and it will tell you to use the native build. LAN FFA works in the native game: first player hosts, friends on the same wifi join automatically.
 
 ## Upload to itch.io
 

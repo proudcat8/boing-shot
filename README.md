@@ -33,18 +33,14 @@ dash needs a direction, shift alone does nothing. it goes where you were holding
 type a name. letters, numbers and `_`, 15 max. press enter.
 
 - `1` bot mode, any name works
-- `2` online mode, but not with `ghost`, `admin` or `nobody`, those names are taken
+- `2` lan mode, but not with `ghost`, `admin` or `nobody`, those names are taken
 - bot mode then `1` chill / `2` normal / `3` mean
-- online mode then type the room host and press enter
+- lan mode then just press enter
+- first player becomes host. friends on the same wifi press enter and join automatically
+- room code shows in the hud. nobody types an ip or a code
 - backspace backs out
 
-online runs through `server.py`. start it on one machine first:
-
-```sh
-python3 server.py
-```
-
-it listens on port `8765`. default host in game is `localhost:8765`, which is right for playing on one pc. friends on other machines type the host ip, like `192.168.1.10:8765`. the host screen also accepts `ws://` and `wss://` urls. web builds auto-add `ws://` or `wss://` based on the page, so plain `example.com:8765` works too if your relay speaks websocket.
+lan is local only, native build only. no extra process, no cloud, no setup. the first game starts its own relay thread; everyone else finds it on the lan. when the host leaves, the room goes away.
 
 everyone in the room sees the same capybara bullets and can bounce them into each other. hits are -10 hp, just like bot mode. kill praise and snakes only exist in bot mode.
 
@@ -62,7 +58,7 @@ top right minimap:
 
 - white dot = you
 - red dots = snakes
-- pink dots = other capybaras online
+- pink dots = other capybaras on lan
 - light gray dots = health pickups
 - gray blocks = cover
 - white line = where you are looking
@@ -72,13 +68,13 @@ top right minimap:
 from this folder:
 
 ```sh
-g++ -O2 main.cpp -o hail-the-capybara -lraylib -lm -lpthread -ldl
+g++ -O2 -std=c++17 main.cpp -o hail-the-capybara -lraylib -lm -lpthread -ldl
 ./hail-the-capybara
 ```
 
 the tracked `hail-the-capybara` binary can also just be run. stay in this folder so `assets/` loads right.
 
-for online, also run `python3 server.py` somewhere reachable. native builds talk raw tcp, web builds talk websocket, and the same port handles both.
+lan needs no extra process. the relay lives inside the native game and only listens while you are in a lan room.
 
 the github url still says `boing-shot` from the old name. that is just legacy plumbing, the game is **Hail the capybara**.
 
@@ -92,7 +88,7 @@ bash web/build.sh
 
 that makes `web/dist/index.html` and `hail-the-capybara-web.zip`. upload the zip to itch.io as an HTML project, 1280x720, with "played in the browser" on. full itch steps are in `web/README.md`.
 
-online from itch needs a public `wss://` relay. `localhost:8765` only works when the page is served from local http and the relay is on the same pc. browsers block `ws://` from https pages.
+the web build is solo only. lan play needs the native build because browsers cannot host a relay.
 
 made for haven hack club, delhi — https://hack.club/hv
 

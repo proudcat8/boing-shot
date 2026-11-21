@@ -10,23 +10,29 @@
 #ifdef PLATFORM_WEB
 #include <emscripten/emscripten.h>
 #include <emscripten/websocket.h>
-EM_JS(int, capyHttps, (), { return window.location.protocol === "https:" ? 1 : 0; });
 #else
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <ifaddrs.h>
 #include <unistd.h>
 #include <fcntl.h>
-static int capyHttps() { return 0; }
+#include <ctime>
+#include <thread>
+#include <mutex>
+#include <atomic>
+#include <vector>
+#include <chrono>
 #endif
 
 const int W = 1280, H = 720;
 const float A = 36.0f, WH = 6.0f, EH = 1.65f;
 
-enum Screen { S_NAME, S_MENU, S_DIFF, S_HOST, S_GAME };
+enum Screen { S_NAME, S_MENU, S_DIFF, S_ROOM, S_GAME };
 Screen screen = S_NAME;
-char pname[16] = "", host[64] = "localhost:8765";
+char pname[16] = "", roomCode[8] = "";
+bool roomStarted = false;
 int mode = 0, difficulty = 1;
 bool nameTaken = false;
 float t = 0, shake = 0;
@@ -50,11 +56,14 @@ Texture2D pointsTex, bulletTex, charTex;
 Model snakeModel;
 Color outfit[6];
 std::string netBuf;
-int myId = 0, netSock = -1;
+int myId = 0;
 float netT = 0;
 bool netReady = false;
 #ifdef PLATFORM_WEB
 EMSCRIPTEN_WEBSOCKET_T ws = 0;
+#else
+int netSock = -1;
+std::string netIn;
 #endif
 float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT = 0;
 float dashCd = 0, dashT = 0;
@@ -168,66 +177,444 @@ EM_BOOL wsMsg(int, const EmscriptenWebSocketMessageEvent *e, void *) {
     return true;
 }
 EM_BOOL wsClose(int, const EmscriptenWebSocketCloseEvent *, void *) { netReady = false; return true; }
-#endif
+void netSend(const char *) {}
+void netClose() {
+    if (ws > 0) emscripten_websocket_close(ws, 1000, "bye");
+    ws = 0;
+    netReady = false;
+}
+#else
+const int LAN_PORT = 8765;
+const char *LAN_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-std::string netUrl() {
-    std::string u = host[0] ? host : "localhost:8765";
-    if (u.rfind("ws://", 0) != 0 && u.rfind("wss://", 0) != 0)
-        u = std::string(capyHttps() ? "wss://" : "ws://") + u;
-    if (u.find(':', u.find("://") + 3) == std::string::npos) u += ":8765";
-    return u;
+struct RelayClient {
+    int fd = -1, id = 0;
+    bool ready = false;
+    std::string in;
+    char name[16] = "capy";
+    float x = 0, y = 0, z = 0, yaw = 0;
+    int hp = 100;
+};
+std::vector<RelayClient> relayPeers;
+std::vector<int> relayFree;
+std::recursive_mutex relayMx;
+std::string relayCode;
+std::atomic<bool> relayOn{false};
+int relayTcpFd = -1, relayUdpFd = -1, relayNext = 1;
+std::thread relayThread;
+long long relayHit[64][64] = {};
+
+std::string makeRelayCode() {
+    static bool seeded = false;
+    if (!seeded) { srand((unsigned)time(nullptr)); seeded = true; }
+    std::string s;
+    for (int i = 0; i < 6; i++) s += LAN_ALPHA[rand() % 32];
+    return s;
 }
 
-void netConnect() {
-    netBuf.clear(); netReady = false; myId = 0; netT = 0;
-    for (NetPlayer &p : netPlayers) p.alive = false;
-    std::string u = netUrl();
-#ifdef PLATFORM_WEB
-    EmscriptenWebSocketCreateAttributes a;
-    emscripten_websocket_init_create_attributes(&a);
-    a.url = u.c_str(); a.createOnMainThread = true;
-    ws = emscripten_websocket_new(&a);
-    if (ws > 0) {
-        emscripten_websocket_set_onopen_callback(ws, NULL, wsOpen);
-        emscripten_websocket_set_onmessage_callback(ws, NULL, wsMsg);
-        emscripten_websocket_set_onclose_callback(ws, NULL, wsClose);
+bool sendAll(int fd, const char *b, size_t n) {
+    while (n) {
+        int k = send(fd, b, (int)n, MSG_NOSIGNAL);
+        if (k <= 0) return false;
+        b += k; n -= (size_t)k;
     }
-#else
-    std::string hp = u.substr(u.find("://") + 3);
-    size_t colon = hp.find(':');
-    std::string hn = hp.substr(0, colon);
-    int port = colon == std::string::npos ? 8765 : atoi(hp.c_str() + colon + 1);
-    netSock = socket(AF_INET, SOCK_STREAM, 0);
+    return true;
+}
+
+void relayFrame(int fd, const std::string &s) {
+    std::string f;
+    size_t n = s.size();
+    f += (char)0x81;
+    if (n < 126) f += (char)n;
+    else if (n < 65536) { f += (char)126; f += (char)(n >> 8); f += (char)n; }
+    else return;
+    f += s;
+    sendAll(fd, f.data(), f.size());
+}
+
+void relayBroadcast(const std::string &s, int skip = 0) {
+    std::lock_guard<std::recursive_mutex> lk(relayMx);
+    for (const RelayClient &c : relayPeers)
+        if (c.ready && c.id != skip) relayFrame(c.fd, s);
+}
+
+std::string relayState(const RelayClient &c) {
+    char b[160];
+    snprintf(b, sizeof(b), "P %d %s %.2f %.2f %.2f %.2f %d",
+             c.id, c.name, c.x, c.y, c.z, c.yaw, c.hp);
+    return b;
+}
+
+void relayWelcome(RelayClient &c) {
+    std::lock_guard<std::recursive_mutex> lk(relayMx);
+    relayFrame(c.fd, "W " + std::to_string(c.id) + " " + relayCode);
+    for (const RelayClient &p : relayPeers)
+        if (p.ready && p.fd != c.fd) relayFrame(c.fd, relayState(p));
+    relayBroadcast(relayState(c), c.id);
+}
+
+void relayHandle(int id, const std::string &line) {
+    std::lock_guard<std::recursive_mutex> lk(relayMx);
+    std::istringstream in(line);
+    char tag = 0;
+    in >> tag;
+    RelayClient *self = nullptr;
+    for (RelayClient &c : relayPeers) if (c.id == id) self = &c;
+    if (!self) return;
+
+    if (tag == 'S') {
+        int sid, hp;
+        float x, y, z, yaw;
+        char nm[16];
+        if (!(in >> sid >> nm >> x >> y >> z >> yaw >> hp) || sid != id) return;
+        snprintf(self->name, sizeof(self->name), "%s", nm);
+        self->x = x; self->y = y; self->z = z; self->yaw = yaw; self->hp = hp;
+        relayBroadcast(relayState(*self), id);
+    } else if (tag == 'F') {
+        int sid;
+        if ((in >> sid) && sid == id) relayBroadcast(line, id);
+    } else if (tag == 'H') {
+        int src, dst;
+        if (!(in >> src >> dst) || src != id || src == dst) return;
+        if (src < 0 || src >= 64 || dst < 0 || dst >= 64) return;
+        long long now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (now - relayHit[src][dst] < 120) return;
+        relayHit[src][dst] = now;
+        RelayClient *target = nullptr;
+        for (RelayClient &c : relayPeers) if (c.id == dst) target = &c;
+        if (!target) return;
+        target->hp -= 10;
+        relayBroadcast(line, src);
+        relayBroadcast("D " + std::to_string(dst) + " " + std::to_string(src), src);
+        relayBroadcast(relayState(*target));
+    }
+}
+
+bool relayFrames(RelayClient &c) {
+    while (c.in.size() >= 2) {
+        unsigned char h0 = (unsigned char)c.in[0], h1 = (unsigned char)c.in[1];
+        size_t len = h1 & 127, off = 2;
+        if (len == 126) {
+            if (c.in.size() < 4) break;
+            len = ((unsigned char)c.in[2] << 8) | (unsigned char)c.in[3];
+            off = 4;
+        } else if (len == 127) {
+            if (c.in.size() < 10) break;
+            len = 0;
+            for (int i = 0; i < 8; i++) len = (len << 8) | (unsigned char)c.in[2 + i];
+            off = 10;
+        }
+        bool masked = h1 & 128;
+        size_t start = off + (masked ? 4 : 0);
+        if (c.in.size() < start + len) break;
+        unsigned char mask[4] = {0,0,0,0};
+        if (masked) for (int i = 0; i < 4; i++) mask[i] = (unsigned char)c.in[off + i];
+        std::string payload = c.in.substr(start, len);
+        c.in.erase(0, start + len);
+        if (masked) for (size_t i = 0; i < payload.size(); i++)
+            payload[i] = (char)(payload[i] ^ mask[i % 4]);
+        int opcode = h0 & 15;
+        if (opcode == 8) return false;
+        if (opcode == 1) {
+            std::string line;
+            for (char ch : payload) if (ch) line += ch;
+            size_t p = 0;
+            while ((p = line.find('\n')) != std::string::npos) {
+                std::string one = line.substr(0, p);
+                line.erase(0, p + 1);
+                if (!one.empty()) relayHandle(c.id, one);
+            }
+            if (!line.empty()) relayHandle(c.id, line);
+        }
+    }
+    return true;
+}
+
+void relayDrop(int fd) {
+    int id = 0;
+    {
+        std::lock_guard<std::recursive_mutex> lk(relayMx);
+        auto it = relayPeers.begin();
+        for (; it != relayPeers.end(); ++it) if (it->fd == fd) break;
+        if (it == relayPeers.end()) return;
+        id = it->id;
+        close(fd);
+        relayFree.push_back(id);
+        relayPeers.erase(it);
+    }
+    relayBroadcast("X " + std::to_string(id));
+}
+
+void relayLoop() {
+    while (relayOn) {
+        fd_set rs;
+        FD_ZERO(&rs);
+        int maxfd = relayTcpFd > relayUdpFd ? relayTcpFd : relayUdpFd;
+        FD_SET(relayTcpFd, &rs);
+        FD_SET(relayUdpFd, &rs);
+        std::vector<int> fds;
+        {
+            std::lock_guard<std::recursive_mutex> lk(relayMx);
+            for (const RelayClient &c : relayPeers) {
+                fds.push_back(c.fd);
+                FD_SET(c.fd, &rs);
+                if (c.fd > maxfd) maxfd = c.fd;
+            }
+        }
+        timeval tv = {0, 100000};
+        if (select(maxfd + 1, &rs, nullptr, nullptr, &tv) <= 0) continue;
+
+        if (FD_ISSET(relayUdpFd, &rs)) {
+            char b[64];
+            sockaddr_in from = {};
+            socklen_t fl = sizeof(from);
+            int n = recvfrom(relayUdpFd, b, sizeof(b), 0, (sockaddr *)&from, &fl);
+            if (n > 0 && std::string(b, n).rfind("CAPY?", 0) == 0) {
+                std::string msg = "CAPY " + relayCode;
+                sendto(relayUdpFd, msg.data(), msg.size(), 0, (sockaddr *)&from, fl);
+            }
+        }
+
+        if (FD_ISSET(relayTcpFd, &rs)) {
+            int fd = accept(relayTcpFd, nullptr, nullptr);
+            if (fd >= 0) {
+                std::lock_guard<std::recursive_mutex> lk(relayMx);
+                if ((int)relayPeers.size() < 64) {
+                    RelayClient c;
+                    c.fd = fd;
+                    c.id = relayFree.empty() ? relayNext++ : *relayFree.begin();
+                    if (!relayFree.empty()) relayFree.erase(relayFree.begin());
+                    relayPeers.push_back(c);
+                } else close(fd);
+            }
+        }
+
+        for (int fd : fds) {
+            if (!FD_ISSET(fd, &rs)) continue;
+            char b[4096];
+            int n = recv(fd, b, sizeof(b), 0);
+            if (n <= 0) { relayDrop(fd); continue; }
+            bool drop = false, welcome = false;
+            {
+                std::lock_guard<std::recursive_mutex> lk(relayMx);
+                for (RelayClient &c : relayPeers) {
+                    if (c.fd != fd) continue;
+                    c.in.append(b, n);
+                    if (!c.ready) {
+                        size_t end = c.in.find("\r\n\r\n");
+                        if (end == std::string::npos) break;
+                        std::string req = c.in.substr(0, end);
+                        c.in.erase(0, end + 4);
+                        std::istringstream hs(req);
+                        std::string method, path, ver;
+                        hs >> method >> path >> ver;
+                        if (path != "/create" && path != "/" + relayCode) { drop = true; break; }
+                        const char *ok = "HTTP/1.1 101 Switching Protocols\r\n"
+                            "Upgrade: websocket\r\nConnection: Upgrade\r\n"
+                            "Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n";
+                        sendAll(fd, ok, strlen(ok));
+                        c.ready = true;
+                        welcome = true;
+                    } else if (!relayFrames(c)) drop = true;
+                    break;
+                }
+            }
+            if (welcome) {
+                std::lock_guard<std::recursive_mutex> lk(relayMx);
+                for (RelayClient &c : relayPeers) if (c.fd == fd) relayWelcome(c);
+            }
+            if (drop) relayDrop(fd);
+        }
+    }
+}
+
+void lanStop() {
+    relayOn = false;
+    if (relayThread.joinable()) relayThread.join();
+    std::lock_guard<std::recursive_mutex> lk(relayMx);
+    for (RelayClient &c : relayPeers) if (c.fd >= 0) close(c.fd);
+    relayPeers.clear();
+    relayFree.clear();
+    relayNext = 1;
+    if (relayTcpFd >= 0) { close(relayTcpFd); relayTcpFd = -1; }
+    if (relayUdpFd >= 0) { close(relayUdpFd); relayUdpFd = -1; }
+}
+
+void lanStart() {
+    lanStop();
+    relayCode = makeRelayCode();
+    memset(relayHit, 0, sizeof(relayHit));
+    relayTcpFd = socket(AF_INET, SOCK_STREAM, 0);
+    relayUdpFd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (relayTcpFd < 0 || relayUdpFd < 0) { lanStop(); return; }
+    int yes = 1;
+    setsockopt(relayTcpFd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
     sockaddr_in addr = {};
-    addr.sin_family = AF_INET; addr.sin_port = htons(port);
-    if (!inet_pton(AF_INET, hn.c_str(), &addr.sin_addr)) {
-        hostent *he = gethostbyname(hn.c_str());
-        if (he) memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    addr.sin_port = htons(LAN_PORT);
+    if (bind(relayTcpFd, (sockaddr *)&addr, sizeof(addr)) < 0 ||
+        listen(relayTcpFd, 16) < 0 ||
+        bind(relayUdpFd, (sockaddr *)&addr, sizeof(addr)) < 0) {
+        lanStop();
+        return;
     }
-    if (connect(netSock, (sockaddr *)&addr, sizeof(addr)) == 0) {
-        int flags = fcntl(netSock, F_GETFL, 0);
-        fcntl(netSock, F_SETFL, flags | O_NONBLOCK);
-        netReady = true;
-    } else { close(netSock); netSock = -1; }
-#endif
+    relayOn = true;
+    relayThread = std::thread(relayLoop);
+}
+
+std::string lanDiscover() {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    int yes = 1;
+    setsockopt(fd, SOL_SOCKET, SO_BROADCAST, &yes, sizeof(yes));
+    sockaddr_in dst = {};
+    dst.sin_family = AF_INET;
+    dst.sin_port = htons(LAN_PORT);
+    dst.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    sendto(fd, "CAPY?", 5, 0, (sockaddr *)&dst, sizeof(dst));
+    ifaddrs *ifap = nullptr;
+    if (getifaddrs(&ifap) == 0) {
+        for (ifaddrs *p = ifap; p; p = p->ifa_next) {
+            if (!p->ifa_broadaddr || p->ifa_broadaddr->sa_family != AF_INET) continue;
+            in_addr a = ((sockaddr_in *)p->ifa_broadaddr)->sin_addr;
+            if (a.s_addr == INADDR_ANY) continue;
+            dst.sin_addr = a;
+            sendto(fd, "CAPY?", 5, 0, (sockaddr *)&dst, sizeof(dst));
+        }
+        freeifaddrs(ifap);
+    }
+    timeval tv = {1, 200000};
+    fd_set rs;
+    FD_ZERO(&rs);
+    FD_SET(fd, &rs);
+    if (select(fd + 1, &rs, nullptr, nullptr, &tv) > 0) {
+        char b[64];
+        sockaddr_in from = {};
+        socklen_t fl = sizeof(from);
+        int n = recvfrom(fd, b, sizeof(b), 0, (sockaddr *)&from, &fl);
+        if (n > 0) {
+            std::string msg(b, n);
+            if (msg.rfind("CAPY ", 0) == 0) {
+                std::string code = msg.substr(5, 6);
+                if (code.size() == 6) {
+                    close(fd);
+                    return std::string(inet_ntoa(from.sin_addr)) + " " + code;
+                }
+            }
+        }
+    }
+    close(fd);
+    return "";
+}
+
+static int netRead(char *b, int n) { return netSock >= 0 ? recv(netSock, b, n, 0) : -1; }
+static bool netFill(size_t n) {
+    while (netIn.size() < n) {
+        char b[4096];
+        int got = netRead(b, sizeof(b));
+        if (got > 0) { netIn.append(b, got); continue; }
+        return false;
+    }
+    return true;
+}
+
+void netClose();
+
+void netConnect(const char *host, const char *code) {
+    netClose();
+    netBuf.clear(); netReady = false; myId = 0; netT = 0;
+    roomCode[0] = 0;
+    for (NetPlayer &p : netPlayers) p.alive = false;
+
+    std::string h = host && *host ? host : "127.0.0.1";
+    netSock = socket(AF_INET, SOCK_STREAM, 0);
+    if (netSock < 0) return;
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(LAN_PORT);
+    if (!inet_pton(AF_INET, h.c_str(), &addr.sin_addr)) {
+        hostent *he = gethostbyname(h.c_str());
+        if (!he) { netClose(); return; }
+        memcpy(&addr.sin_addr, he->h_addr_list[0], he->h_length);
+    }
+    if (connect(netSock, (sockaddr *)&addr, sizeof(addr)) != 0) { netClose(); return; }
+
+    std::string req = std::string("GET /") + code + " HTTP/1.1\r\nHost: " + h +
+        "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n";
+    if (!sendAll(netSock, req.data(), req.size())) { netClose(); return; }
+    size_t end;
+    while ((end = netIn.find("\r\n\r\n")) == std::string::npos)
+        if (!netFill(netIn.size() + 1)) { netClose(); return; }
+    if (netIn.substr(0, end).find("101") == std::string::npos) { netClose(); return; }
+    netIn.erase(0, end + 4);
+
+    int flags = fcntl(netSock, F_GETFL, 0);
+    fcntl(netSock, F_SETFL, flags | O_NONBLOCK);
+    netReady = true;
 }
 
 void netSend(const char *s) {
-#ifdef PLATFORM_WEB
-    if (ws > 0 && netReady) emscripten_websocket_send_utf8_text(ws, s);
-#else
-    if (netSock >= 0) send(netSock, s, strlen(s), 0);
-#endif
+    if (!netReady) return;
+    std::string msg(s), frame;
+    size_t n = msg.size();
+    frame += (char)0x81;
+    if (n < 126) frame += (char)(0x80 | n);
+    else if (n < 65536) {
+        frame += (char)(0x80 | 126);
+        frame += (char)(n >> 8);
+        frame += (char)(n & 255);
+    } else return;
+    unsigned char mask[4] = {0x12, 0x34, 0x56, 0x78};
+    for (int i = 0; i < 4; i++) frame += (char)mask[i];
+    for (size_t i = 0; i < n; i++) frame += (char)(msg[i] ^ mask[i % 4]);
+    sendAll(netSock, frame.data(), frame.size());
+}
+
+static void netPump() {
+    while (netReady) {
+        if (!netFill(2)) break;
+        unsigned char h0 = (unsigned char)netIn[0], h1 = (unsigned char)netIn[1];
+        size_t len = h1 & 127, off = 2;
+        if (len == 126) {
+            if (!netFill(4)) break;
+            len = ((unsigned char)netIn[2] << 8) | (unsigned char)netIn[3];
+            off = 4;
+        } else if (len == 127) {
+            if (!netFill(10)) break;
+            len = 0;
+            for (int i = 0; i < 8; i++) len = (len << 8) | (unsigned char)netIn[2 + i];
+            off = 10;
+        }
+        bool masked = h1 & 128;
+        size_t start = off + (masked ? 4 : 0);
+        if (!netFill(start + len)) break;
+        unsigned char key[4] = {0,0,0,0};
+        if (masked) for (int i = 0; i < 4; i++) key[i] = (unsigned char)netIn[off + i];
+        std::string payload = netIn.substr(start, len);
+        netIn.erase(0, start + len);
+        if (masked) for (size_t i = 0; i < payload.size(); i++)
+            payload[i] = (char)(payload[i] ^ key[i % 4]);
+        int opcode = h0 & 15;
+        if (opcode == 1) {
+            for (char c : payload) if (c) netBuf += c;
+        } else if (opcode == 8) netReady = false;
+    }
 }
 
 void netClose() {
 #ifdef PLATFORM_WEB
     if (ws > 0) emscripten_websocket_close(ws, 1000, "bye");
+    ws = 0;
 #else
-    if (netSock >= 0) close(netSock);
+    if (netSock >= 0) { close(netSock); netSock = -1; }
+    netIn.clear();
 #endif
-    netSock = -1; netReady = false;
+    netReady = false;
 }
+#endif
 
 void remoteShot(int id, Vector3 p, Vector3 v) {
     for (Bullet &b : bullets) if (!b.alive) {
@@ -241,9 +628,14 @@ void netLine(std::string s) {
     char tag = 0;
     in >> tag;
     if (tag == 'W') {
-        in >> myId;
+        in >> myId >> roomCode;
         float a = (myId - 1) * 2.39996f;
         me.pos = {cosf(a) * 5, 0, 9 + sinf(a) * 5};
+    } else if (tag == 'E') {
+        hurtMsg = "room gone - make another";
+        hurtMsgT = 2.0f;
+        netClose();
+        screen = S_MENU;
     } else if (tag == 'P') {
         int id, hp; char nm[16]; float x, y, z, yaw;
         in >> id >> nm >> x >> y >> z >> yaw >> hp;
@@ -266,14 +658,8 @@ void netLine(std::string s) {
 }
 
 void netUpdate(float dt) {
-#ifdef PLATFORM_WEB
-#else
-    if (netSock >= 0) {
-        char b[2048];
-        int n = recv(netSock, b, sizeof(b), 0);
-        if (n > 0) netBuf.append(b, n);
-        else if (n == 0) netReady = false;
-    }
+#ifndef PLATFORM_WEB
+    netPump();
 #endif
     size_t nl;
     while ((nl = netBuf.find('\n')) != std::string::npos) {
@@ -699,16 +1085,22 @@ void drawMenu() {
         DrawText("2  normal  - the usual", 84, 360, 24, RAYWHITE);
         DrawText("3  mean    - fast angry haters", 84, 400, 24, RAYWHITE);
         DrawText("backspace - back", 84, 470, 20, LIGHTGRAY);
-    } else if (screen == S_HOST) {
-        DrawText("room host", 84, 250, 36, RAYWHITE);
-        DrawText(TextFormat("%s_", host[0] ? host : "localhost:8765"), 84, 310, 26, RAYWHITE);
-        DrawText("localhost:8765 = same pc · type a host or ws:// / wss:// url", 84, 360, 18, LIGHTGRAY);
-        DrawText("enter = join · esc = back", 84, 410, 20, LIGHTGRAY);
-        DrawText("run server.py on the host first", 84, 460, 18, LIGHTGRAY);
+    } else if (screen == S_ROOM) {
+#ifdef PLATFORM_WEB
+        DrawText("lan play needs the native build", 84, 250, 32, RAYWHITE);
+        DrawText("the web build is solo only", 84, 310, 22, LIGHTGRAY);
+        DrawText("enter = back", 84, 370, 20, LIGHTGRAY);
+#else
+        DrawText("lan capybara ffa", 84, 250, 36, RAYWHITE);
+        DrawText("enter = find a game or start one", 84, 320, 26, RAYWHITE);
+        DrawText("first player hosts. others join same wifi.", 84, 370, 20, LIGHTGRAY);
+        DrawText("no setup, no ip, no extra files", 84, 420, 18, LIGHTGRAY);
+        DrawText("esc = back", 84, 470, 20, LIGHTGRAY);
+#endif
     } else {
         DrawText(TextFormat("name: %s", pname), 84, 250, 28, RAYWHITE);
         DrawText("1  bot mode   (any name)", 84, 320, 26, RAYWHITE);
-        DrawText("2  online mode (play with friends)", 84, 360, 26, RAYWHITE);
+        DrawText("2  lan mode (same wifi, first player hosts)", 84, 360, 24, RAYWHITE);
         if (nameTaken) DrawText("NAME UNAVAILABLE - pick another name", 84, 415, 22, RED);
         DrawText("backspace - change name", 84, 465, 20, LIGHTGRAY);
         DrawText("WASD=move\n Left click= shoot\n R = reload\n SHIFT+WASD = dash", 84, 505, 18, LIGHTGRAY);
@@ -753,26 +1145,43 @@ int main() {
             }
         } else if (screen == S_MENU) {
             if (IsKeyPressed(KEY_ONE)) { mode = 0; screen = S_DIFF; }
-            if (IsKeyPressed(KEY_TWO) && !nameTaken) { mode = 1; host[0] = 0; screen = S_HOST; }
+            if (IsKeyPressed(KEY_TWO) && !nameTaken) {
+                mode = 1; roomStarted = false; screen = S_ROOM;
+            }
             if (IsKeyPressed(KEY_BACKSPACE)) screen = S_NAME;
         } else if (screen == S_DIFF) {
             int keys[] = {KEY_ONE, KEY_TWO, KEY_THREE};
             for (int i = 0; i < 3; i++)
                 if (IsKeyPressed(keys[i])) { difficulty = i; reset(); screen = S_GAME; }
             if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
-        } else if (screen == S_HOST) {
-            for (int c = GetCharPressed(); c; c = GetCharPressed())
-                if ((isalnum(c) || c == '.' || c == ':' || c == '/' || c == '-') && strlen(host) < 63) {
-                    size_t n = strlen(host);
-                    host[n] = (char)c; host[n+1] = 0;
+        } else if (screen == S_ROOM) {
+#ifdef PLATFORM_WEB
+            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
+#else
+            if (!roomStarted && IsKeyPressed(KEY_ENTER)) {
+                roomStarted = true;
+                std::string found = lanDiscover();
+                reset();
+                if (!found.empty()) {
+                    std::istringstream fi(found);
+                    std::string ip, code;
+                    fi >> ip >> code;
+                    netConnect(ip.c_str(), code.c_str());
+                } else {
+                    lanStart();
+                    netConnect("127.0.0.1", relayCode.c_str());
                 }
-            if (IsKeyPressed(KEY_BACKSPACE) && strlen(host)) host[strlen(host)-1] = 0;
-            if (IsKeyPressed(KEY_ENTER)) { reset(); netConnect(); screen = S_GAME; }
+                screen = S_GAME;
+            }
             if (IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
+#endif
         } else {
             if (mode == 1) netUpdate(dt);
             if (IsKeyPressed(KEY_ESCAPE)) {
                 if (mode == 1) netClose();
+#ifndef PLATFORM_WEB
+                if (mode == 1) lanStop();
+#endif
                 screen = S_MENU; dead = false;
             }
             if (dead) {
@@ -789,7 +1198,7 @@ int main() {
             drawCrosshair();
             drawHateText();
             DrawText(TextFormat("%s  |  %s  |  ammo %d", pname,
-                                mode ? "ONLINE" : diffName[difficulty], me.ammo),
+                                mode ? "LAN" : diffName[difficulty], me.ammo),
                      20, 20, 20, RAYWHITE);
             DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
             if (mode == 0)
@@ -797,9 +1206,10 @@ int main() {
             else {
                 int peers = 0;
                 for (const NetPlayer &p : netPlayers) if (p.alive && p.id != myId) peers++;
-                const char *st = !netReady ? "no room - start server.py" :
-                    (!myId ? "connecting..." : TextFormat("room %s | id %d | %d other capybara(s)",
-                       host[0] ? host : "localhost:8765", myId, peers));
+                const char *st = !netReady ? "connecting..." :
+                    (!myId ? "joining room..." :
+                     roomCode[0] ? TextFormat("room %s | id %d | %d other capybara(s)",
+                                              roomCode, myId, peers) : "making room...");
                 DrawText(st, 20, 75, 16, LIGHTGRAY);
             }
             DrawText("dash", 20, 100, 16, LIGHTGRAY);
@@ -823,6 +1233,9 @@ int main() {
     UnloadModel(snakeModel);
     UnloadTexture(pointsTex); UnloadTexture(bulletTex); UnloadTexture(charTex);
     netClose();
+#ifndef PLATFORM_WEB
+    lanStop();
+#endif
     CloseAudioDevice();
     CloseWindow();
     return 0;
