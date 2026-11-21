@@ -298,7 +298,6 @@ void update(float dt) {
                 if (hitCd <= 0) {
                     hitCd = 0.05f;
                     emit(b.pos, LIGHTGRAY, 2, 0.25f);
-                    shake = fmaxf(shake, 0.03f);
                     SetSoundVolume(sHit, 0.25f); PlaySound(sHit);
                 }
             }
