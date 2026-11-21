@@ -1,5 +1,4 @@
 // Hail the capybara - haters shoot red bullets, you shoot them down lol
-// still no netcode or proper textures yet
 #include "raylib.h"
 #include "raymath.h"
 #include <cctype>
@@ -8,10 +7,10 @@
 const int W = 1280, H = 720;
 const float A = 12.0f, WH = 6.0f, EH = 1.65f;
 
-enum Screen { S_NAME, S_MENU, S_GAME };
+enum Screen { S_NAME, S_MENU, S_DIFF, S_GAME };
 Screen screen = S_NAME;
 char pname[16] = "";
-int mode = 0;
+int mode = 0, difficulty = 1;
 bool nameTaken = false;
 float t = 0, shake = 0;
 
@@ -27,9 +26,11 @@ Spark sparks[60];
 Hater haters[5];
 Pickup pickups[3];
 Camera3D cam;
-Sound sHit, sKill, sJump, sShoot, sReload;
+Sound sHit, sKill, sJump, sShoot, sReload, sDash;
 Texture2D pointsTex;
 float hitCd = 0, praiseMsgT = 0, winT = 0, hurtMsgT = 0, bonusMsgT = 0, pointT = 0;
+float dashCd = 0, dashT = 0;
+const char *diffName[] = {"chill", "normal", "mean"};
 const char *praiseMsg = "capybaras are perfect";
 const char *hurtMsg = "capybara bad";
 const char *bonusMsg = "+30";
@@ -80,13 +81,21 @@ bool nameUnavailable(const char *n) {
     return false;
 }
 
-// 1, 2, 4, 5 then keep 5, anymore felt mean
+// 1, 2, 4, 5 then keep 5, 
 int waveSize(int r) {
     if (r == 1) return 1;
     if (r == 2) return 2;
     if (r == 3) return 4;
-    return 5;
+    if (r == 4) return 6;
+    return 6;
 }
+
+// difficulty changes the haters, not just the menu text
+float haterMoveSp() { return difficulty == 0 ? 1.5f : difficulty == 2 ? 3.1f : 2.2f; }
+float haterShotSp() { return difficulty == 0 ? 11 : difficulty == 2 ? 19 : 15; }
+float haterFireLo() { return difficulty == 0 ? 2.4f : difficulty == 2 ? 0.8f : 1.5f; }
+float haterFireHi() { return difficulty == 0 ? 3.8f : difficulty == 2 ? 1.6f : 2.7f; }
+int haterHpMax()   { return difficulty == 0 ? 1 : difficulty == 2 ? 3 : 2; }
 
 void spawnRound() {
     for (Hater &h : haters) h.alive = false;
@@ -95,7 +104,7 @@ void spawnRound() {
     int n = waveSize(wave);
     for (int i = 0; i < n; i++)
         haters[i] = {spots[i], randf(1.0f, 2.6f), 0,
-                     randf(0.5f, 2.0f), randf(0, 6.28318f), 2, true};
+                     randf(0.5f, 2.0f), randf(0, 6.28318f), haterHpMax(), true};
 }
 
 void reset() {
@@ -112,6 +121,8 @@ void reset() {
     hurtMsgT = 0;
     bonusMsgT = 0;
     winT = 0;
+    dashCd = 0;
+    dashT = 0;
     cam = {{0, EH, 9}, {0, EH, 8}, {0, 1, 0}, 80, CAMERA_PERSPECTIVE};
 }
 
@@ -163,14 +174,22 @@ void update(float dt) {
     me.yaw += m.x * 0.003f;
     me.pitch = Clamp(me.pitch - m.y * 0.003f, -1.3f, 1.3f);
     Vector3 f = {sinf(me.yaw), 0, -cosf(me.yaw)}, r = {cosf(me.yaw), 0, sinf(me.yaw)};
+    if (dashT > 0) dashT -= dt;
+    if (dashCd > 0) dashCd -= dt;
+    if (IsKeyPressed(KEY_LEFT_SHIFT) && dashCd <= 0) {
+        dashT = 0.18f;
+        dashCd = 3.0f;
+        SetSoundVolume(sDash, 0.4f); PlaySound(sDash);
+    }
     Vector3 move = {0,0,0};
     if (IsKeyDown(KEY_W)) move = Vector3Add(move, f);
     if (IsKeyDown(KEY_S)) move = Vector3Subtract(move, f);
     if (IsKeyDown(KEY_D)) move = Vector3Add(move, r);
     if (IsKeyDown(KEY_A)) move = Vector3Subtract(move, r);
+    if (dashT > 0) move = f;      // dash goes where you look
     if (Vector3LengthSqr(move) > 0) {
         move = Vector3Normalize(move);
-        float sp = IsKeyDown(KEY_LEFT_SHIFT) ? 14 : 9;
+        float sp = dashT > 0 ? 32 : 9;
         me.pos.x = Clamp(me.pos.x + move.x * sp * dt, -A + 0.5f, A - 0.5f);
         me.pos.z = Clamp(me.pos.z + move.z * sp * dt, -A + 0.5f, A - 0.5f);
     }
@@ -228,15 +247,14 @@ void update(float dt) {
     praiseMsgT -= dt;
     hurtMsgT -= dt;
     bonusMsgT -= dt;
-    // the haters take turns being annoying
     for (Hater &h : haters) {
         if (!h.alive) continue;
         h.fireT -= dt;
         h.hurtT -= dt;
-        // wander around, avoid the cover cubes
         h.moveT -= dt;
         if (h.moveT <= 0) { h.moveT = randf(1.0f, 2.5f); h.dir = randf(0, 6.28318f); }
-        Vector3 step = {sinf(h.dir) * 2.2f * dt, 0, cosf(h.dir) * 2.2f * dt};
+        float hsp = haterMoveSp();
+        Vector3 step = {sinf(h.dir) * hsp * dt, 0, cosf(h.dir) * hsp * dt};
         Vector3 np = Vector3Add(h.pos, step);
         np.x = Clamp(np.x, -A + 1, A - 1);
         np.z = Clamp(np.z, -A + 1, A - 1);
@@ -246,19 +264,18 @@ void update(float dt) {
                 np.z > b.min.z - 0.7f && np.z < b.max.z + 0.7f) stuck = true;
         if (stuck) h.moveT = 0; else h.pos = np;
         if (h.fireT > 0) continue;
-        h.fireT = randf(1.5f, 2.7f);
+        h.fireT = randf(haterFireLo(), haterFireHi());
         for (Bullet &b : bullets) if (!b.alive) {
             Vector3 from = {h.pos.x, 2.1f, h.pos.z};
             Vector3 dir = Vector3Normalize(Vector3Subtract(
                 (Vector3){me.pos.x, me.pos.y + 1, me.pos.z}, from));
             dir.x += randf(-0.07f, 0.07f);
             dir = Vector3Normalize(dir);
-            b = {Vector3Add(from, Vector3Scale(dir, 0.6f)), Vector3Scale(dir, 15),
+            b = {Vector3Add(from, Vector3Scale(dir, 0.6f)), Vector3Scale(dir, haterShotSp()),
                  7, 0, true, false};
             break;
         }
     }
-    // red bullets, no text on them anymore
     for (Bullet &b : bullets) {
         if (!b.alive) continue;
         if ((b.life -= dt) <= 0) { b.alive = false; continue; }
@@ -270,7 +287,7 @@ void update(float dt) {
                     hitCd = 0.05f;
                     emit(b.pos, LIGHTGRAY, 2, 0.25f);
                     shake = fmaxf(shake, 0.03f);
-                    SetSoundVolume(sHit, 0.8f); PlaySound(sHit);
+                    SetSoundVolume(sHit, 0.25f); PlaySound(sHit);
                 }
             }
             // my bullets pop haters
@@ -295,7 +312,6 @@ void update(float dt) {
                 (!b.mine || b.bounces > 0)) {
                 b.alive = false;
                 me.hp -= 10; me.invuln = 0.4f;
-                // only enemy bullets talk trash, my own bounce just hurts
                 if (!b.mine) {
                     hurtMsg = insults[GetRandomValue(0, NINSULT - 1)];
                     hurtMsgT = 1.1f;
@@ -304,7 +320,6 @@ void update(float dt) {
             }
         }
     }
-    // points.png pickups heal +30, 5% roll, random regen, max 3 out
     pointT -= dt;
     if (pointT <= 0) {
         pointT = randf(0.5f, 1.5f);
@@ -395,7 +410,6 @@ void drawWorld() {
         DrawCube(Vector3Add(eyeMid, Vector3Scale(side, -0.17f)), 0.12f, 0.08f, 0.04f, RED);
         DrawCube(Vector3Add(eyeMid, Vector3Scale(side,  0.17f)), 0.12f, 0.08f, 0.04f, RED);
     }
-    // the png is a spinning quad out in the 3d world
     for (const Pickup &p : pickups) if (p.alive) {
         Vector3 at = {p.pos.x, p.pos.y + sinf(t * 3 + p.pos.x) * 0.15f, p.pos.z};
         Rectangle src = {0, 0, (float)pointsTex.width, (float)pointsTex.height};
@@ -423,7 +437,7 @@ void drawCrosshair() {
     DrawLine(cx, cy + 5, cx, cy + 14, RAYWHITE);
 }
 
-// tags, praise, insults, bonus, win msg. 2d on top, fullscreen works too
+// tags, praise, insults, bonus, win msg.
 void drawHateText() {
     Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
     auto tag = [&](Vector3 p, const char *say, int fs, Color c) {
@@ -454,7 +468,6 @@ void drawHateText() {
     }
 }
 
-// minimap fak plyr tst
 void drawMinimap() {
     int mx = W - 186, my = 20, ms = 160;
     DrawRectangle(mx - 6, my - 6, ms + 12, ms + 12, Fade(BLACK, 0.55f));
@@ -482,20 +495,26 @@ void drawMenu() {
     if (screen == S_NAME) {
         DrawText(TextFormat("name: %s_", pname), 84, 250, 32, RAYWHITE);
         DrawText("letters/numbers only - enter to continue", 84, 300, 20, LIGHTGRAY);
+    } else if (screen == S_DIFF) {
+        DrawText("pick difficulty", 84, 250, 36, RAYWHITE);
+        DrawText("1  chill   - slow haters, soft bullets", 84, 320, 24, RAYWHITE);
+        DrawText("2  normal  - the usual", 84, 360, 24, RAYWHITE);
+        DrawText("3  mean    - fast angry haters", 84, 400, 24, RAYWHITE);
+        DrawText("backspace - back", 84, 470, 20, LIGHTGRAY);
     } else {
         DrawText(TextFormat("name: %s", pname), 84, 250, 28, RAYWHITE);
         DrawText("1  bot mode   (any name)", 84, 320, 26, RAYWHITE);
         DrawText("2  online mode (name is reserved)", 84, 360, 26, RAYWHITE);
         if (nameTaken) DrawText("NAME UNAVAILABLE - pick another name", 84, 415, 22, RED);
         DrawText("backspace - change name", 84, 465, 20, LIGHTGRAY);
-        DrawText("WASD=move\n Left click= shoot\n R = reload", 84, 505, 18, LIGHTGRAY);
+        DrawText("WASD=move\n Left click= shoot\n R = reload\n SHIFT = dash", 84, 505, 18, LIGHTGRAY);
         DrawText("bot mode: delete the capybara haters", 84, 580, 18, LIGHTGRAY);
     }
 }
 
 int main() {
     InitWindow(W, H, "Hail the capybara");
-    //bot adn multiplauer not done
+    //bot adn multiplauer
     DisableCursor();
     InitAudioDevice();
     sHit = LoadSound("assets/hit.mp3");
@@ -503,6 +522,7 @@ int main() {
     sJump = LoadSound("assets/jump.mp3");
     sShoot = LoadSound("assets/shoot.mp3");
     sReload = LoadSound("assets/reload.mp3");
+    sDash = LoadSound("assets/dash.mp3");
     pointsTex = LoadTexture("assets/points.png");
     SetTargetFPS(120);
     SetExitKey(KEY_NULL);
@@ -525,9 +545,14 @@ int main() {
                 screen = S_MENU;
             }
         } else if (screen == S_MENU) {
-            if (IsKeyPressed(KEY_ONE)) { mode = 0; reset(); screen = S_GAME; }
+            if (IsKeyPressed(KEY_ONE)) { mode = 0; screen = S_DIFF; }
             if (IsKeyPressed(KEY_TWO) && !nameTaken) { mode = 1; reset(); screen = S_GAME; }
             if (IsKeyPressed(KEY_BACKSPACE)) screen = S_NAME;
+        } else if (screen == S_DIFF) {
+            if (IsKeyPressed(KEY_ONE)) { difficulty = 0; reset(); screen = S_GAME; }
+            if (IsKeyPressed(KEY_TWO)) { difficulty = 1; reset(); screen = S_GAME; }
+            if (IsKeyPressed(KEY_THREE)) { difficulty = 2; reset(); screen = S_GAME; }
+            if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
         } else {
             if (IsKeyPressed(KEY_ESCAPE)) { screen = S_MENU; dead = false; }
             if (dead) {
@@ -543,15 +568,22 @@ int main() {
             EndMode3D();
             drawCrosshair();
             drawHateText();
-            DrawText(TextFormat("%s  |  %s  |  ammo %d  |  K = fx", pname,
-                                mode ? "ONLINE" : "BOTS", me.ammo), 20, 20, 20, RAYWHITE);
-            // bots + netcode need
+            DrawText(TextFormat("%s  |  %s  |  %s  |  ammo %d  |  K = fx", pname,
+                                mode ? "ONLINE" : "BOTS", diffName[difficulty], me.ammo),
+                     20, 20, 20, RAYWHITE);
             DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
             if (mode == 0)
                 DrawText(TextFormat("round %d", wave), 20, 75, 20, LIGHTGRAY);
+            DrawText("dash", 20, 100, 16, LIGHTGRAY);
+            DrawRectangle(66, 102, 120, 12, Fade(BLACK, 0.6f));
+            DrawRectangle(66, 102, (int)(120 * (1 - dashCd / 3.0f)), 12,
+                          dashCd <= 0 ? RAYWHITE : LIGHTGRAY);
+            DrawRectangleLines(66, 102, 120, 12, LIGHTGRAY);
             drawMinimap();
             if (dead) {
                 DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, 0.72f));
+                const char *r = TextFormat("round %d", wave);
+                DrawText(r, GetScreenWidth()/2 - MeasureText(r, 24)/2, 24, 24, RAYWHITE);
                 const char *d = "U DIED";
                 DrawText(d, GetScreenWidth()/2 - MeasureText(d, 72)/2,
                          GetScreenHeight()/2 - 100, 72, RED);
@@ -562,7 +594,7 @@ int main() {
         EndDrawing();
     }
     UnloadSound(sHit); UnloadSound(sKill); UnloadSound(sJump);
-    UnloadSound(sShoot); UnloadSound(sReload);
+    UnloadSound(sShoot); UnloadSound(sReload); UnloadSound(sDash);
     UnloadTexture(pointsTex);
     CloseAudioDevice();
     CloseWindow();
