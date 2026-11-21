@@ -1,3 +1,5 @@
+// capybara haters fly around yelling "capybara bad", you shoot them down lol
+// still no netcode or textures yet
 #include "raylib.h"
 #include "raymath.h"
 #include <cctype>
@@ -14,15 +16,21 @@ bool nameTaken = false;
 float t = 0, shake = 0;
 
 struct Player { Vector3 pos; float yaw, pitch, vy, fireT, reloadT, invuln; bool grounded; int ammo, hp; };
-struct Bullet { Vector3 pos, vel; float life; int bounces; bool alive, mine; };
+struct Bullet { Vector3 pos, vel; float life; int bounces; bool alive, mine; const char *say; };
 struct Spark  { Vector3 pos, vel; float life; Color c; };
+struct Hater  { Vector3 pos; float fireT, hurtT; int hp; bool alive; };
+struct Pop    { Vector3 pos; const char *say; float life; };
 
 Player me;
 Bullet bullets[100];
 Spark sparks[60];
+Hater haters[5];
+Pop pops[12];
 Camera3D cam;
 Sound sHit, sKill, sJump, sShoot, sReload;
-float hitCd = 0;
+float hitCd = 0, hurtMsgT = 0, winT = 0;
+const char *hurtMsg = "capybara bad";
+int kills = 0;
 
 BoundingBox map[] = {
     {{-9,0,-2},{-2.5,3,-1}},  {{2.5,0,-2},{9,3,-1}},
@@ -31,6 +39,22 @@ BoundingBox map[] = {
     {{-7,0,7},{-5,1.2,9}},    {{5,0,-9},{7,1.2,-7}}
 };
 const int NMAP = sizeof(map) / sizeof(map[0]);
+const int NHATERS = sizeof(haters) / sizeof(haters[0]);
+
+// the insults they shoot at you. they bounce too, so watch out
+const char *hate[] = {
+    "capybara bad", "capybara overrated", "capybaras r mid",
+    "capybara stole my lunch", "no capybaras allowed",
+    "capybara = fancy rat", "capybara bad at math"
+};
+const int NHATE = sizeof(hate) / sizeof(hate[0]);
+
+// what pops out of them when they die
+const char *deathLines[] = {
+    "skill issue", "capybara 1 - hater 0", "ratings: 0",
+    "boo!", "capybara fan club +1", "they deserved it"
+};
+const int NDEATH = sizeof(deathLines) / sizeof(deathLines[0]);
 
 float randf(float a, float b) { return a + (b - a) * GetRandomValue(0, 1000) / 1000.0f; }
 
@@ -55,6 +79,13 @@ void reset() {
     me = {{0, 0, 9}, 0, 0, 0, 0, 0, 0, true, 12, 100};
     for (Bullet &b : bullets) b.alive = false;
     for (Spark &s : sparks) s.life = 0;
+    for (Pop &p : pops) p.life = 0;
+    Vector3 spots[] = {{-7,0,-9}, {7,0,7}, {-8,0,6}, {8,0,-6}, {0,0,-9}};
+    for (int i = 0; i < NHATERS; i++)
+        haters[i] = {spots[i], randf(1.0f, 2.6f), 0, 2, true};
+    kills = 0;
+    hurtMsgT = 0;
+    winT = 0;
     cam = {{0, EH, 9}, {0, EH, 8}, {0, 1, 0}, 80, CAMERA_PERSPECTIVE};
 }
 
@@ -65,7 +96,11 @@ void emit(Vector3 p, Color c, float sp, float life) {
     }
 }
 
-// particle for a kill. works when i call it, no dying
+void popSay(Vector3 p, const char *say) {
+    for (Pop &q : pops) if (q.life <= 0) { q = {p, say, 1.2f}; return; }
+}
+
+// particle for a kill. now wired to hater deaths, K still previews it
 void burst(Vector3 p) {
     for (int i = 0; i < 24; i++)
         emit(p, i % 3 == 0 ? RAYWHITE : (i % 3 == 1 ? LIGHTGRAY : GRAY), 5, randf(0.4f, 1.0f));
@@ -159,7 +194,7 @@ void update(float dt) {
         for (Bullet &b : bullets) if (!b.alive) {
             Vector3 d = {sinf(me.yaw)*cosf(me.pitch), sinf(me.pitch), -cosf(me.yaw)*cosf(me.pitch)};
             b = {Vector3Add((Vector3){me.pos.x, me.pos.y + EH, me.pos.z}, Vector3Scale(d, 0.5f)),
-                 Vector3Scale(d, 55), 5, 0, true, true};
+                 Vector3Scale(d, 55), 5, 0, true, true, 0};
             me.ammo--; me.fireT = 0.14f;
             shake = 0.08f;
             SetSoundVolume(sShoot, 0.6f); PlaySound(sShoot);
@@ -167,7 +202,26 @@ void update(float dt) {
         }
     }
     hitCd -= dt;
-    // no enemy bullet
+    hurtMsgT -= dt;
+    // the haters take turns being annoying
+    for (Hater &h : haters) {
+        if (!h.alive) continue;
+        h.fireT -= dt;
+        h.hurtT -= dt;
+        if (h.fireT > 0) continue;
+        h.fireT = randf(1.5f, 2.7f);
+        for (Bullet &b : bullets) if (!b.alive) {
+            Vector3 from = {h.pos.x, 2.1f, h.pos.z};
+            Vector3 dir = Vector3Normalize(Vector3Subtract(
+                (Vector3){me.pos.x, me.pos.y + 1, me.pos.z}, from));
+            dir.x += randf(-0.07f, 0.07f);
+            dir = Vector3Normalize(dir);
+            b = {Vector3Add(from, Vector3Scale(dir, 0.6f)), Vector3Scale(dir, 15),
+                 8, 0, true, false, hate[GetRandomValue(0, NHATE - 1)]};
+            break;
+        }
+    }
+    // insult bullets are just red bullets with words stuck on them
     for (Bullet &b : bullets) {
         if (!b.alive) continue;
         if ((b.life -= dt) <= 0) { b.alive = false; continue; }
@@ -182,17 +236,38 @@ void update(float dt) {
                     SetSoundVolume(sHit, 0.8f); PlaySound(sHit);
                 }
             }
+            // my bullets pop haters
+            if (b.mine) for (Hater &h : haters) if (h.alive &&
+                Vector3DistanceSqr(b.pos, (Vector3){h.pos.x, 1.2f, h.pos.z}) < 0.9f * 0.9f) {
+                b.alive = false; h.hp--; h.hurtT = 0.12f;
+                SetSoundVolume(sHit, 0.8f); PlaySound(sHit);
+                if (h.hp <= 0) {
+                    h.alive = false; kills++;
+                    Vector3 at = {h.pos.x, 1.2f, h.pos.z};
+                    burst(at);
+                    for (int q = 0; q < 6; q++) emit(at, RED, 4, 0.6f);
+                    popSay((Vector3){h.pos.x, 2.6f, h.pos.z},
+                           deathLines[GetRandomValue(0, NDEATH - 1)]);
+                    SetSoundVolume(sKill, 1.0f); PlaySound(sKill);
+                }
+                break;
+            }
             //own shots damage after they bounce once
             Vector3 body = {me.pos.x, me.pos.y + 1, me.pos.z};
             if (me.invuln <= 0 && Vector3DistanceSqr(body, b.pos) < 0.8f * 0.8f &&
                 (!b.mine || b.bounces > 0)) {
                 b.alive = false;
                 me.hp -= 10; me.invuln = 0.4f;
+                hurtMsgT = 1.1f;
+                hurtMsg = b.say ? b.say : "capybara bad";
                 shake = 0.25f;
             }
         }
     }
     if (me.hp <= 0) reset();
+    for (Pop &q : pops) if (q.life > 0) { q.life -= dt; q.pos.y += dt * 0.7f; }
+    if (kills >= NHATERS && winT <= 0) winT = 3.0f;
+    if (winT > 0 && (winT -= dt) <= 0) reset();
     for (Spark &s : sparks) {
         if (s.life <= 0) continue;
         s.life -= dt;
@@ -225,6 +300,19 @@ void drawWorld() {
         DrawCubeV(c, s, GRAY);
         DrawCubeWiresV(c, s, LIGHTGRAY);
     }
+    for (const Hater &h : haters) if (h.alive) {
+        float bob = sinf(t * 4 + h.pos.x) * 0.05f;
+        Color skin = h.hurtT > 0 ? RAYWHITE : GRAY;
+        DrawCube((Vector3){h.pos.x, 0.9f + bob, h.pos.z}, 1.0f, 1.3f, 0.75f, skin);
+        DrawCubeWires((Vector3){h.pos.x, 0.9f + bob, h.pos.z}, 1.0f, 1.3f, 0.75f, RED);
+        DrawCube((Vector3){h.pos.x, 1.85f + bob, h.pos.z - 0.25f}, 0.7f, 0.55f, 0.6f, skin);
+        // tiny top hat, very serious hater
+        DrawCube((Vector3){h.pos.x, 2.25f + bob, h.pos.z - 0.25f}, 0.5f, 0.25f, 0.45f, DARKGRAY);
+        DrawCube((Vector3){h.pos.x, 2.4f + bob, h.pos.z - 0.25f}, 0.3f, 0.1f, 0.3f, DARKGRAY);
+        // mad little eyes
+        DrawCube((Vector3){h.pos.x - 0.17f, 1.93f + bob, h.pos.z - 0.57f}, 0.12f, 0.08f, 0.04f, RED);
+        DrawCube((Vector3){h.pos.x + 0.17f, 1.93f + bob, h.pos.z - 0.57f}, 0.12f, 0.08f, 0.04f, RED);
+    }
     for (const Bullet &b : bullets) {
         if (!b.alive) continue;
         Color c = b.mine ? RAYWHITE : RED;
@@ -245,6 +333,33 @@ void drawCrosshair() {
     DrawLine(cx, cy + 5, cx, cy + 14, RAYWHITE);
 }
 
+// words are drawn in 2d at projected spots, fullscreen works too
+void drawHateText() {
+    Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
+    auto tag = [&](Vector3 p, const char *say, int fs, Color c) {
+        Vector3 to = Vector3Subtract(p, cam.position);
+        if (Vector3DotProduct(to, fw) <= 0) return;
+        Vector2 s = GetWorldToScreen(p, cam);
+        DrawText(say, (int)s.x - MeasureText(say, fs)/2, (int)s.y - fs/2, fs, c);
+    };
+    for (const Hater &h : haters) if (h.alive)
+        tag((Vector3){h.pos.x, 2.75f, h.pos.z}, "capybara hater", 14, LIGHTGRAY);
+    for (const Bullet &b : bullets) if (b.alive && !b.mine && b.say) {
+        int fs = Clamp((int)(100 / Vector3Distance(cam.position, b.pos)), 13, 26);
+        tag(b.pos, b.say, fs, RED);
+    }
+    for (const Pop &q : pops) if (q.life > 0)
+        tag(q.pos, q.say, 18, Fade(RAYWHITE, Clamp(q.life, 0, 1)));
+    if (hurtMsgT > 0)
+        DrawText(hurtMsg, GetScreenWidth()/2 - MeasureText(hurtMsg, 38)/2,
+                 GetScreenHeight()/2 + 70, 38, Fade(RED, Clamp(hurtMsgT, 0, 1)));
+    if (winT > 0) {
+        const char *w = "CAPYBARA WINS - more haters loading...";
+        DrawText(w, GetScreenWidth()/2 - MeasureText(w, 30)/2,
+                 GetScreenHeight()/2 - 140, 30, RAYWHITE);
+    }
+}
+
 // minimap fak plyr tst
 void drawMinimap() {
     int mx = W - 186, my = 20, ms = 160;
@@ -257,19 +372,18 @@ void drawMinimap() {
     auto dot = [&](float x, float z, Color c, int r) {
         DrawCircle(mx + (x + A) / (2*A) * ms, my + (z + A) / (2*A) * ms, r, c);
     };
-    for (int i = 0; i < 3; i++)
-        dot(sinf(t * 0.6f + i * 2.1f) * 7, cosf(t * 0.5f + i * 2.1f) * 7, mode ? LIGHTGRAY : GRAY, 3);
+    for (const Hater &h : haters) if (h.alive) dot(h.pos.x, h.pos.z, RED, 4);
     dot(me.pos.x, me.pos.z, RAYWHITE, 4);
     DrawLine(mx + (me.pos.x + A) / (2*A) * ms, my + (me.pos.z + A) / (2*A) * ms,
              mx + (me.pos.x + sinf(me.yaw) * 2 + A) / (2*A) * ms,
              my + (me.pos.z - cosf(me.yaw) * 2 + A) / (2*A) * ms, RAYWHITE);
-    DrawText(mode ? "players" : "bots", mx, my + ms + 8, 14, LIGHTGRAY);
+    DrawText("haters", mx, my + ms + 8, 14, LIGHTGRAY);
 }
 
 void drawMenu() {
     ClearBackground(DARKGRAY);
     DrawText("BOING SHOOT", 80, 90, 64, RAYWHITE);
-    DrawText("bounce back - bullets go brrr (wip)", 84, 165, 20, LIGHTGRAY);
+    DrawText("bounce back - bullets go brrr", 84, 165, 20, LIGHTGRAY);
     if (screen == S_NAME) {
         DrawText(TextFormat("name: %s_", pname), 84, 250, 32, RAYWHITE);
         DrawText("letters/numbers only - enter to continue", 84, 300, 20, LIGHTGRAY);
@@ -280,6 +394,7 @@ void drawMenu() {
         if (nameTaken) DrawText("NAME UNAVAILABLE - pick another name", 84, 415, 22, RED);
         DrawText("backspace - change name", 84, 465, 20, LIGHTGRAY);
         DrawText("WASD=move\n Left click= shoot\n R = reload", 84, 505, 18, LIGHTGRAY);
+        DrawText("goal: delete the capybara haters", 84, 580, 18, LIGHTGRAY);
     }
 }
 
@@ -329,8 +444,9 @@ int main() {
             drawWorld();
             EndMode3D();
             drawCrosshair();
-            DrawText(TextFormat("%s  |  %s  |  ammo %d  |  K = kill fx preview", pname,
-                                mode ? "ONLINE" : "BOTS", me.ammo), 20, 20, 22, RAYWHITE);
+            drawHateText();
+            DrawText(TextFormat("%s  |  %s  |  ammo %d  |  haters %d/%d  |  K = fx", pname,
+                                mode ? "ONLINE" : "BOTS", me.ammo, kills, NHATERS), 20, 20, 20, RAYWHITE);
             // bots + netcode need
             DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
             drawMinimap();
