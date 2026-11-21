@@ -23,7 +23,7 @@ struct Pickup { Vector3 pos; float spin; bool alive; };
 Player me;
 Bullet bullets[100];
 Spark sparks[60];
-Hater haters[5];
+Hater haters[6];
 Pickup pickups[3];
 Camera3D cam;
 Sound sHit, sKill, sJump, sShoot, sReload, sDash;
@@ -118,7 +118,7 @@ int haterHpMax()   { return difficulty == 0 ? 1 : difficulty == 2 ? 3 : 2; }
 void spawnRound() {
     for (Hater &h : haters) h.alive = false;
     if (mode == 1) return;      // online stays empty till netcode exists
-    Vector3 spots[] = {{-24,0,-30}, {-30,0,-2}, {24,0,30}, {-24,0,30}, {30,0,-30}};
+    Vector3 spots[] = {{-24,0,-30}, {-30,0,-2}, {24,0,30}, {-24,0,30}, {30,0,-30}, {-30,0,30}};
     int n = waveSize(wave);
     for (int i = 0; i < n; i++)
         haters[i] = {spots[i], randf(1.0f, 2.6f), 0,
