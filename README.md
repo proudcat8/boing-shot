@@ -9,7 +9,7 @@ The game is purely hardcoded in cpp without a game editor. i used pure cpp with 
 you run around a 72x72 grey grid arena with magenta walls and dark green cover. snakes slide around and shoot red capybara bullets at you. you shoot capybara bullets back and they bounce off walls and boxes. simple.
 
 - your shots are the normal capybara png. bot snakes use the same png tinted red
-- lan wip has no other players yet, so every bullet you see is yours
+- lan mode has no other players, so every bullet you see is yours
 - bullets bounce off walls, boxes, floor and ceiling, then die after 8 bounces
 - your own bullet only hurts you after it bounced once. dont stand in the way of your own ricochet
 - snakes hurt right away in bot mode
@@ -35,10 +35,10 @@ type a name. letters, numbers and `_`, 15 max. press enter. the bgm starts on th
 - `1` bot mode, any name works
 - `2` lan mode, but not with `ghost`, `admin` or `nobody`, those names are taken
 - bot mode then `1` chill / `2` normal / `3` mean
-- lan mode drops straight into a solo round for now, no snakes, just you and the capybara pickups
+- lan mode drops straight into a round with no snakes, just you and the capybara pickups
 - backspace backs out
 
-lan is still under construction. the button is there but it does not host or join anything yet. no relay, no room code, no other players. it plays like a quiet practice round: bounce your own bullets and walk into the capybara pickups for +30 hp.
+lan mode is a quiet solo round for now. no relay, no room code, no other players. it looks like the real thing in game: bounce your own bullets and walk into the capybara pickups for +30 hp.
 
 # rounds and health
 
@@ -69,7 +69,7 @@ g++ -O2 -std=c++17 main.cpp -o hail-the-capybara -lraylib -lm -lpthread -ldl
 
 the tracked `hail-the-capybara` binary can also just be run. stay in this folder so `assets/` loads right.
 
-lan wip starts no relay and opens no ports. it is just a button that drops you into a solo round.
+lan mode starts no relay and opens no ports. it is just a button that drops you into a round.
 
 the github url still says `boing-shot` from the old name. that is just legacy plumbing, the game is **Hail the capybara**.
 
@@ -83,7 +83,7 @@ bash web/build.sh
 
 that makes `web/dist/index.html` and `hail-the-capybara-web.zip`. upload the zip to itch.io as an HTML project, 1280x720, with "played in the browser" on. full itch steps are in `web/README.md`.
 
-both builds are solo only right now. the lan button is just a wip placeholder.
+both builds are solo only right now. the lan button just starts a round with no snakes.
 
 made for haven hack club, delhi — https://hack.club/hv
 

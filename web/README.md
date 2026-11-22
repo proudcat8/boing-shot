@@ -33,7 +33,7 @@ Click the game or press a key once so the browser gives it mouse lock and audio.
 
 ## Multiplayer
 
-LAN is still under construction in both builds. The menu button is there, but picking `2` just drops you into a solo practice round with no snakes and no other players. You can shoot and grab the capybara pickups as usual.
+LAN mode in both builds starts a normal-looking round with no snakes and no other players. You can shoot and grab the capybara pickups as usual. There is no relay or networking behind it.
 
 ## Upload to itch.io
 
