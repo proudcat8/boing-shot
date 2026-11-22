@@ -46,12 +46,11 @@ if [[ -z "$RAYLIB_LIB" ]]; then
 fi
 
 rm -rf "$STAGE" "$DIST"
-mkdir -p "$STAGE/assets/snake/textures" "$STAGE/assets/character" "$DIST"
+mkdir -p "$STAGE/assets/character" "$DIST"
 
 FILES=(
   "assets/CREDITS.txt"
   "assets/capybara_bullet.png"
-  "assets/points.png"
   "assets/character/body.png"
   "assets/character/jacket.png"
   "assets/character/jeans.png"
@@ -59,16 +58,11 @@ FILES=(
   "assets/character/gloves.png"
   "assets/character/backpack.png"
   "assets/hit.mp3"
-  "assets/kill.mp3"
   "assets/jump.mp3"
   "assets/shoot.mp3"
   "assets/reload.mp3"
   "assets/dash.mp3"
   "assets/bgm.mp3"
-  "assets/snake/Snake.obj"
-  "assets/snake/Snake.mtl"
-  "assets/snake/textures/S-Skin_03.png"
-  "assets/snake/textures/S-Skin_NMap.png"
 )
 for f in "${FILES[@]}"; do
   cp "$ROOT/$f" "$STAGE/$f"
