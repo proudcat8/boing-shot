@@ -53,7 +53,8 @@ NetPlayer netPlayers[64];
 Camera3D cam;
 Sound sHit, sKill, sJump, sShoot, sReload, sDash;
 Music bgm;
-bool haveBgm = false;
+bool haveBgm = false, bgmStarted = false;
+const float BGM_VOLUME = 0.25f;
 Texture2D pointsTex, bulletTex, charTex;
 Model snakeModel;
 Color outfit[6];
@@ -116,6 +117,20 @@ bool inBoxXZ(Vector3 p, BoundingBox b, float pad) {
            p.z > b.min.z - pad && p.z < b.max.z + pad;
 }
 void sfx(Sound s, float v) { SetSoundVolume(s, v); PlaySound(s); }
+void startBgm() {
+    if (!haveBgm || bgmStarted) return;
+    SetMusicVolume(bgm, BGM_VOLUME);
+    PlayMusicStream(bgm);
+    bgmStarted = true;
+}
+#ifdef PLATFORM_WEB
+extern "C" EMSCRIPTEN_KEEPALIVE void capyAudioUnlocked() {
+    if (!haveBgm) return;
+    PlayMusicStream(bgm);
+    SetMusicVolume(bgm, BGM_VOLUME);
+    bgmStarted = true;
+}
+#endif
 void ctext(const char *s, int y, int fs, Color c) {
     DrawText(s, GetScreenWidth()/2 - MeasureText(s, fs)/2, y, fs, c);
 }
@@ -1123,10 +1138,12 @@ int main() {
     sDash = LoadSound("assets/dash.mp3");
     if (FileExists("assets/bgm.mp3")) {
         bgm = LoadMusicStream("assets/bgm.mp3");
-        bgm.looping = true;
-        SetMusicVolume(bgm, 0.12f);
-        PlayMusicStream(bgm);
-        haveBgm = true;
+        if (bgm.ctxData != NULL) {
+            bgm.looping = true;
+            SetMusicVolume(bgm, BGM_VOLUME);
+            haveBgm = true;
+            startBgm();
+        }
     }
     pointsTex = LoadTexture("assets/points.png");
     bulletTex = LoadTexture("assets/capybara_bullet.png");

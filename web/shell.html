@@ -22,7 +22,7 @@
 <body>
   <div id="wrap">
     <h1>HAIL THE CAPYBARA</h1>
-    <p class="tiny">haven hack club / delhi — <a href="https://hack.club/hv">hack.club/hv</a><br>click the game once for mouse + sound. esc gives the mouse back.</p>
+    <p class="tiny">haven hack club / delhi — <a href="https://hack.club/hv">hack.club/hv</a><br>click or press a key once for sound. click for mouse. esc gives the mouse back.</p>
     <div id="status">loading capybara artillery...</div>
     <div id="bar"><div id="progress"></div></div>
     <canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas>
@@ -50,6 +50,31 @@
         if (!text) document.getElementById('progress').style.width = '100%';
       },
       monitorRunDependencies: function () {}
+    };
+
+    var capyAudioGesture = false, capyAudioKicked = false;
+    function capyKickAudio() {
+      if (window.miniaudio && typeof window.miniaudio.unlock === 'function') {
+        window.miniaudio.unlock();
+      }
+      if (Module._capyAudioUnlocked) {
+        Module._capyAudioUnlocked();
+        capyAudioKicked = true;
+      }
+    }
+    function capyUnlockAudio() {
+      capyAudioGesture = true;
+      if (!capyAudioKicked) capyKickAudio();
+    }
+
+    ['keydown', 'mousedown', 'touchstart'].forEach(function (type) {
+      document.addEventListener(type, capyUnlockAudio, true);
+    });
+
+    var capyReady = Module.onRuntimeInitialized;
+    Module.onRuntimeInitialized = function () {
+      if (capyReady) capyReady();
+      if (capyAudioGesture && !capyAudioKicked) capyKickAudio();
     };
 
     document.getElementById('fullscreen').addEventListener('click', function () {

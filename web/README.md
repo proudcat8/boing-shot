@@ -29,7 +29,7 @@ python3 -m http.server 8000 --directory web/dist
 
 Then open http://localhost:8000.
 
-Click the game once so the browser gives it mouse lock and audio. Press `esc` to give the mouse back.
+Click the game or press a key once so the browser gives it mouse lock and audio. The BGM is quiet under the SFX and starts on the name screen as soon as the browser allows sound. Press `esc` to give the mouse back.
 
 ## Multiplayer
 

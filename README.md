@@ -30,7 +30,7 @@ dash needs a direction, shift alone does nothing. it goes where you were holding
 
 # starting up
 
-type a name. letters, numbers and `_`, 15 max. press enter.
+type a name. letters, numbers and `_`, 15 max. press enter. the bgm starts on this screen too; in a browser, click or press a key once first so the browser allows sound.
 
 - `1` bot mode, any name works
 - `2` lan mode, but not with `ghost`, `admin` or `nobody`, those names are taken
