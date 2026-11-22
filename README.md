@@ -58,34 +58,15 @@ top right minimap:
 - gray blocks = cover
 - white line = where you are looking
 
-# build and run
-
-from this folder:
-
-```sh
-g++ -O2 -std=c++17 main.cpp -o hail-the-capybara -lraylib -lm -lpthread -ldl
-./hail-the-capybara
-```
-
-the tracked `hail-the-capybara` binary can also just be run. stay in this folder so `assets/` loads right.
-
-lan mode starts no relay and opens no ports. it is just a button that drops you into a round.
-
-the github url still says `boing-shot` from the old name. that is just legacy plumbing, the game is **Hail the capybara**.
 
 # browser / itch.io
 
 there is also a real wasm web build:
 
-```sh
-bash web/build.sh
-```
 
 that makes `web/dist/index.html` and `hail-the-capybara-web.zip`. upload the zip to itch.io as an HTML project, 1280x720, with "played in the browser" on. full itch steps are in `web/README.md`.
 
-both builds are solo only right now. the lan button just starts a round with no snakes.
 
-made for haven hack club, delhi — https://hack.club/hv
 
 # where the stuff came from
 
