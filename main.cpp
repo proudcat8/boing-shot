@@ -1,4 +1,4 @@
-// Hail the capybara - your ex shoots red bullets, you shoot it down lol
+// capy shoot game lol
 #include "raylib.h"
 #include "raymath.h"
 #include <cctype>
@@ -96,14 +96,14 @@ BoundingBox map[] = {
     {{-24,0,0},{-18,2.2,4}},     {{18,0,-12},{24,2.2,-8}},
     {{-12,0,-21},{-7,1.2,-15}},  {{7,0,15},{12,1.2,21}}
 };
-// white msg when a hater goes down. no words on the bullets anymore
+// praise pops up, no text on bullets
 const char *praise[] = {
     "capybaras are perfect", "capybara supremacy", "capybaras deserve a treat",
     "capybara is a good boy", "capybaras are chill like that", "respect the capybara"
 };
 const int NPRAISE = sizeof(praise) / sizeof(praise[0]);
 
-// red insults when u get hit, they are NOT stuck on the balls anymore
+// insults r on screen only
 const char *insults[] = {
     "capybara bad", "capybara overrated", "capybaras r mid",
     "capybara stole my lunch", "no capybaras allowed",
@@ -141,12 +141,6 @@ void ctextLines(const char *s, int y, int fs, Color c) {
     while (std::getline(in, line))
         ctext(line.c_str(), y + row++*(fs + 6), fs, c);
 }
-
-// void spawnBot(Vector3 at) {
-//     bots[numBots].pos = at;
-//     bots[numBots].hp = 40;
-//     numBots++;
-// }
 
 bool same(const char *a, const char *b) {
     while (*a && *b) if (tolower(*a++) != tolower(*b++)) return false;
@@ -701,7 +695,7 @@ void netUpdate(float dt) {
     }
 }
 
-// 1, 2, 4, 6 then keep 6
+// waves go up then stay
 int waveSize(int r) {
     if (r == 1) return 1;
     if (r == 2) return 2;
@@ -710,7 +704,7 @@ int waveSize(int r) {
     return 6;
 }
 
-// difficulty changes the haters, not just the menu text
+// diff makes em faster
 float haterMoveSp() { return difficulty == 0 ? 1.5f : difficulty == 2 ? 3.1f : 2.2f; }
 float haterShotSp() { return difficulty == 0 ? 8 : difficulty == 2 ? 14 : 11; }
 float haterFireLo() { return difficulty == 0 ? 2.4f : difficulty == 2 ? 0.8f : 1.5f; }
@@ -719,7 +713,7 @@ int haterHpMax()   { return difficulty == 0 ? 1 : difficulty == 2 ? 3 : 2; }
 
 void spawnRound() {
     for (Hater &h : haters) h.alive = false;
-    if (mode == 1) return;      // online has real players
+    if (mode == 1) return;      // online uses real peeps
     Vector3 spots[] = {{-24,0,-30}, {-30,0,-2}, {24,0,30}, {-24,0,30}, {30,0,-30}, {-30,0,30}};
     int n = waveSize(wave);
     for (int i = 0; i < n; i++)
@@ -747,7 +741,7 @@ void emit(Vector3 p, Color c, float sp, float life) {
     }
 }
 
-// particle for a kill. now wired to hater deaths, K still previews it
+// boom bits
 void burst(Vector3 p) {
     for (int i = 0; i < 24; i++)
         emit(p, i % 3 == 0 ? RAYWHITE : (i % 3 == 1 ? LIGHTGRAY : GRAY), 5, randf(0.4f, 1.0f));
@@ -829,7 +823,7 @@ void update(float dt) {
             me.pos.y = b.max.y; me.vy = 0; me.grounded = true;
         }
 
-    // ammo/reload
+    // pew pew reload
     me.fireT -= dt; me.invuln -= dt;
     if (me.reloadT > 0 && (me.reloadT -= dt) <= 0) me.ammo = 12;
     if (IsKeyPressed(KEY_R) || me.ammo == 0) if (me.reloadT <= 0 && me.ammo < 12) {
@@ -892,7 +886,7 @@ void update(float dt) {
                     sfx(sHit, 0.25f);
                 }
             }
-            // my bullets pop haters
+            // my shot hits
             if (b.mine) for (Hater &h : haters) if (h.alive &&
                 Vector3DistanceSqr(b.pos, (Vector3){h.pos.x, 1.2f, h.pos.z}) < 0.9f * 0.9f) {
                 b.alive = false; h.hp--; h.hurtT = 0.12f;
@@ -917,7 +911,7 @@ void update(float dt) {
                     netSend(msg);
                     break;
                 }
-            //own shots damage after they bounce once
+            // bounced shots hurt u too
             Vector3 body = {me.pos.x, me.pos.y + 1, me.pos.z};
             if (me.invuln <= 0 && Vector3DistanceSqr(body, b.pos) < 0.8f * 0.8f &&
                 (!b.mine || b.bounces > 0)) {
@@ -966,7 +960,7 @@ void update(float dt) {
         hurtMsgT = 0;
         sfx(sKill, 0.9f);
     }
-    // clear the round, then spawn the next bunch
+    // next wave soon
     if (kills >= waveSize(wave) && winT <= 0) winT = 2.5f;
     if (winT > 0 && (winT -= dt) <= 0) {
         wave++; kills = 0; spawnRound();
@@ -991,7 +985,7 @@ void drawWorld() {
         DrawLine3D((Vector3){i, 0.02f, -A}, (Vector3){i, 0.02f, A}, grid);
         DrawLine3D((Vector3){-A, 0.02f, i}, (Vector3){A, 0.02f, i}, grid);
     }
-    Color wall = {230, 140, 215, 255};   // light magenta walls
+    Color wall = {230, 140, 215, 255};   // pink walls
     DrawCube((Vector3){0, WH/2, -A-0.5f}, A*2+1, WH, 1, wall);
     DrawCube((Vector3){0, WH/2,  A+0.5f}, A*2+1, WH, 1, wall);
     DrawCube((Vector3){-A-0.5f, WH/2, 0}, 1, WH, A*2+1, wall);
@@ -999,10 +993,10 @@ void drawWorld() {
     for (const BoundingBox &b : map) {
         Vector3 c = {(b.min.x+b.max.x)/2, (b.min.y+b.max.y)/2, (b.min.z+b.max.z)/2};
         Vector3 s = {b.max.x-b.min.x, b.max.y-b.min.y, b.max.z-b.min.z};
-        DrawCubeV(c, s, (Color){35, 85, 50, 255});      // dark green boxes
+        DrawCubeV(c, s, (Color){35, 85, 50, 255});      // green boxes
         DrawCubeWiresV(c, s, (Color){100, 160, 110, 255});
     }
-    // snakes are the natural enemy of capybaras. show them side on
+    // snake bois
     for (const Hater &h : haters) if (h.alive) {
         float bob = sinf(t * 4 + h.pos.x) * 0.05f;
         float face = atan2f(me.pos.x - h.pos.x, me.pos.z - h.pos.z) * RAD2DEG;
@@ -1041,7 +1035,7 @@ void drawWorld() {
         if (s.life > 0) DrawCube(s.pos, 0.13f, 0.13f, 0.13f, Fade(s.c, Clamp(s.life, 0, 1)));
 }
 
-// crosshair
+// dot in middle
 void drawCrosshair() {
     int cx = GetScreenWidth() / 2, cy = GetScreenHeight() / 2;
     DrawLine(cx - 14, cy, cx - 5, cy, RAYWHITE);
@@ -1050,7 +1044,7 @@ void drawCrosshair() {
     DrawLine(cx, cy + 5, cx, cy + 14, RAYWHITE);
 }
 
-// tags, praise, insults, bonus, win msg.
+// floating words
 void drawHateText() {
     Vector3 fw = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
     auto tag = [&](Vector3 p, const char *say, int fs, Color c) {
@@ -1098,12 +1092,6 @@ void drawMinimap() {
 
 void drawMenu() {
     ClearBackground(DARKGRAY);
-
-    // capybara bullet art, kept whole and centered behind the menu
-    float scale = (float)GetScreenHeight()/bulletTex.height;
-    float bw = bulletTex.width*scale, bh = bulletTex.height*scale;
-    DrawTextureEx(bulletTex, {GetScreenWidth()/2 - bw/2, GetScreenHeight()/2 - bh/2},
-                  0, scale, Fade(WHITE, 0.9f));
     DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, 0.42f));
 
     const int panelW = 820, panelH = 580;
@@ -1151,7 +1139,7 @@ void drawMenu() {
 
 int main() {
     InitWindow(W, H, "Hail the capybara");
-    //bot adn multiplauer
+    // bot or lan
     DisableCursor();
     InitAudioDevice();
     sHit = LoadSound("assets/hit.mp3");
