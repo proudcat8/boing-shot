@@ -5,6 +5,5 @@ capybara_bullet.png
   downloaded 2026-11-22, no edits
 
 character/*.png
-  source: base-color textures from the provided assets/chartexture.zip
-  matching unreal project: assets/charachter.zip
+  source: base-color textures supplied for the project
   note: downscaled and averaged into a tiny billboard sprite for other players

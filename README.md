@@ -96,8 +96,8 @@ made for haven hack club, delhi — https://hack.club/hv
 
 capybara bullet png came from pngimg, CC BY-NC 4.0, links are in `assets/CREDITS.txt`.
 
-snake model and textures came from the `assets/snake fxb.zip` and `assets/texture snake.rar` you gave me. fbx got converted to obj because this raylib build wont load fbx. the jpg textures got converted to png because progressive jpgs broke.
+snake model and textures came from the original fbx/rar files you gave me. fbx got converted to obj because this raylib build wont load fbx. the jpg textures got converted to png because progressive jpgs broke.
 
-the other capybara sprite comes from base-color textures in `assets/chartexture.zip` (and the matching `assets/charachter.zip`). they got averaged down into the tiny pngs in `assets/character/`, so the web build only carries those. no ai art or music.
+the other capybara sprite comes from base-color textures you gave me. they got averaged down into the tiny pngs in `assets/character/`, so the repo only carries those. no ai art or music.
 
 #HAVE FUN#
