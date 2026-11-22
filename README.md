@@ -9,10 +9,10 @@ The game is purely hardcoded in cpp without a game editor. i used pure cpp with 
 you run around a 72x72 grey grid arena with magenta walls and dark green cover. snakes slide around and shoot red capybara bullets at you. you shoot capybara bullets back and they bounce off walls and boxes. simple.
 
 - your shots are the normal capybara png. bot snakes use the same png tinted red
-- online everyones bullets are the same plain capybara png, no red team bullets
+- lan wip has no other players yet, so every bullet you see is yours
 - bullets bounce off walls, boxes, floor and ceiling, then die after 8 bounces
 - your own bullet only hurts you after it bounced once. dont stand in the way of your own ricochet
-- enemy and online bullets hurt right away
+- snakes hurt right away in bot mode
 - getting hit is -10 hp and a red insult. killing a snake is white capybara praise plus the kill fx and sound. no score. capybaras dont need a scoreboard
 
 # controls
@@ -35,14 +35,10 @@ type a name. letters, numbers and `_`, 15 max. press enter. the bgm starts on th
 - `1` bot mode, any name works
 - `2` lan mode, but not with `ghost`, `admin` or `nobody`, those names are taken
 - bot mode then `1` chill / `2` normal / `3` mean
-- lan mode then just press enter
-- first player becomes host. friends on the same wifi press enter and join automatically
-- room code shows in the hud. nobody types an ip or a code
+- lan mode drops straight into a solo round for now, no snakes, just you and the capybara pickups
 - backspace backs out
 
-lan is local only, native build only. no extra process, no cloud, no setup. the first game starts its own relay thread; everyone else finds it on the lan. when the host leaves, the room goes away.
-
-everyone in the room sees the same capybara bullets and can bounce them into each other. hits are -10 hp, just like bot mode. kill praise and snakes only exist in bot mode.
+lan is still under construction. the button is there but it does not host or join anything yet. no relay, no room code, no other players. it plays like a quiet practice round: bounce your own bullets and walk into the capybara pickups for +30 hp.
 
 # rounds and health
 
@@ -58,7 +54,6 @@ top right minimap:
 
 - white dot = you
 - red dots = snakes
-- pink dots = other capybaras on lan
 - light gray dots = health pickups
 - gray blocks = cover
 - white line = where you are looking
@@ -74,7 +69,7 @@ g++ -O2 -std=c++17 main.cpp -o hail-the-capybara -lraylib -lm -lpthread -ldl
 
 the tracked `hail-the-capybara` binary can also just be run. stay in this folder so `assets/` loads right.
 
-lan needs no extra process. the relay lives inside the native game and only listens while you are in a lan room.
+lan wip starts no relay and opens no ports. it is just a button that drops you into a solo round.
 
 the github url still says `boing-shot` from the old name. that is just legacy plumbing, the game is **Hail the capybara**.
 
@@ -88,7 +83,7 @@ bash web/build.sh
 
 that makes `web/dist/index.html` and `hail-the-capybara-web.zip`. upload the zip to itch.io as an HTML project, 1280x720, with "played in the browser" on. full itch steps are in `web/README.md`.
 
-the web build is solo only. lan play needs the native build because browsers cannot host a relay.
+both builds are solo only right now. the lan button is just a wip placeholder.
 
 made for haven hack club, delhi — https://hack.club/hv
 

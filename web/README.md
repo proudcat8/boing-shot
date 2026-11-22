@@ -33,9 +33,7 @@ Click the game or press a key once so the browser gives it mouse lock and audio.
 
 ## Multiplayer
 
-The web build is solo only. Browsers cannot open a listening socket, so they cannot host a LAN relay.
-
-Pick `2` lan mode in the web build and it will tell you to use the native build. LAN FFA works in the native game: first player hosts, friends on the same wifi join automatically.
+LAN is still under construction in both builds. The menu button is there, but picking `2` just drops you into a solo practice round with no snakes and no other players. You can shoot and grab the capybara pickups as usual.
 
 ## Upload to itch.io
 

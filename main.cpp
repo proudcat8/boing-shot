@@ -25,12 +25,13 @@
 #include <vector>
 #include <chrono>
 #endif
+
+
 const int W = 1280, H = 720;
 const float A = 36.0f, WH = 6.0f, EH = 1.65f;
-enum Screen { S_NAME, S_MENU, S_DIFF, S_ROOM, S_GAME };
+enum Screen { S_NAME, S_MENU, S_DIFF, S_GAME };
 Screen screen = S_NAME;
 char pname[16] = "", roomCode[8] = "";
-bool roomStarted = false;
 int mode = 0, difficulty = 1;
 bool nameTaken = false;
 float t = 0, shake = 0;
@@ -374,7 +375,7 @@ float haterFireLo() { return difficulty == 0 ? 2.4f : difficulty == 2 ? 0.8f : 1
 float haterFireHi() { return difficulty == 0 ? 3.8f : difficulty == 2 ? 1.6f : 2.7f; }
 int haterHpMax()   { return difficulty == 0 ? 1 : difficulty == 2 ? 3 : 2; }
 void spawnRound() { for (Hater &h : haters) h.alive = false;
-if (mode == 1) return;      // online uses real peeps
+if (mode == 1) return;      // wip lan has no peeps
     Vector3 spots[] = {{-24,0,-30}, {-30,0,-2}, {24,0,30}, {-24,0,30}, {30,0,-30}, {-30,0,30}};
     int n = waveSize(wave);
     for (int i = 0; i < n; i++)
@@ -577,22 +578,10 @@ void drawMenu() { ClearBackground(DARKGRAY); DrawRectangle(0, 0, GetScreenWidth(
         ctext("2  normal  - the usual", 365, 24, RAYWHITE);
         ctext("3  mean    - fast angry haters", 405, 24, RAYWHITE);
         ctext("backspace - back", 480, 20, LIGHTGRAY);
-    } else if (screen == S_ROOM) {
-#ifdef PLATFORM_WEB
-        ctext("lan play needs the native build", 260, 32, RAYWHITE);
-        ctext("the web build is solo only", 320, 22, LIGHTGRAY);
-        ctext("enter = back", 380, 20, LIGHTGRAY);
-#else
-        ctext("lan capybara ffa", 260, 36, RAYWHITE);
-        ctext("enter = find a game or start one", 325, 26, RAYWHITE);
-        ctext("first player hosts. others join same wifi.", 375, 20, LIGHTGRAY);
-        ctext("no setup, no ip, no extra files", 420, 18, LIGHTGRAY);
-        ctext("esc = back", 480, 20, LIGHTGRAY);
-#endif
     } else {
         ctext(TextFormat("name: %s", pname), 245, 28, RAYWHITE);
         ctext("1  bot mode   (any name)", 305, 28, RAYWHITE);
-        ctext("2  lan mode (same wifi, first player hosts)", 350, 24, RAYWHITE);
+        ctext("2  lan mode (under construction)", 350, 24, RAYWHITE);
         if (nameTaken) ctext("NAME UNAVAILABLE - pick another name", 405, 22, RED);
         ctext("backspace - change name", 455, 20, LIGHTGRAY);
         ctextLines("WASD=move\nleft click = shoot\nR = reload\nSHIFT+WASD = dash", 495, 18, LIGHTGRAY);
@@ -625,42 +614,24 @@ int main() { InitWindow(W, H, "Hail the capybara");
             if (IsKeyPressed(KEY_ENTER) && strlen(pname)) { nameTaken = nameUnavailable(pname); screen = S_MENU; }
         } else if (screen == S_MENU) {
             if (IsKeyPressed(KEY_ONE)) { mode = 0; screen = S_DIFF; }
-            if (IsKeyPressed(KEY_TWO) && !nameTaken) { mode = 1; roomStarted = false; screen = S_ROOM; }
+            // lan still wip, just drop into a solo round
+            if (IsKeyPressed(KEY_TWO) && !nameTaken) { mode = 1; reset(); screen = S_GAME; }
             if (IsKeyPressed(KEY_BACKSPACE)) screen = S_NAME;
         } else if (screen == S_DIFF) {
             int keys[] = {KEY_ONE, KEY_TWO, KEY_THREE};
             for (int i = 0; i < 3; i++)
                 if (IsKeyPressed(keys[i])) { difficulty = i; reset(); screen = S_GAME; }
             if (IsKeyPressed(KEY_BACKSPACE) || IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
-        } else if (screen == S_ROOM) {
-#ifdef PLATFORM_WEB
-            if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
-#else
-            if (!roomStarted && IsKeyPressed(KEY_ENTER)) { roomStarted = true; std::string found = lanDiscover(); reset(); if (!found.empty()) { std::istringstream fi(found); std::string ip, code; fi >> ip >> code; netConnect(ip.c_str(), code.c_str()); } else { lanStart();
-                    netConnect("127.0.0.1", relayCode.c_str());
-                }
-                screen = S_GAME;
-            }
-            if (IsKeyPressed(KEY_ESCAPE)) screen = S_MENU;
-#endif
         } else {
-            if (mode == 1) netUpdate(dt);
-            if (IsKeyPressed(KEY_ESCAPE)) { if (mode == 1) netClose();
-#ifndef PLATFORM_WEB
-                if (mode == 1) lanStop();
-#endif
-                screen = S_MENU; dead = false;
-            }
+            if (IsKeyPressed(KEY_ESCAPE)) { screen = S_MENU; dead = false; }
             if (dead) { if (IsKeyPressed(KEY_ENTER) || IsKeyPressed(KEY_R)) reset(); } else update(dt);
         }
         BeginDrawing();
         ClearBackground(DARKGRAY);
-        if (screen == S_GAME) { BeginMode3D(cam); drawWorld(); EndMode3D(); drawCrosshair(); drawHateText(); DrawText(TextFormat("%s  |  %s  |  ammo %d", pname, mode ? "LAN" : diffName[difficulty], me.ammo), 20, 20, 20, RAYWHITE); DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
+        if (screen == S_GAME) { BeginMode3D(cam); drawWorld(); EndMode3D(); drawCrosshair(); drawHateText(); DrawText(TextFormat("%s  |  %s  |  ammo %d", pname, mode ? "LAN WIP" : diffName[difficulty], me.ammo), 20, 20, 20, RAYWHITE); DrawText(TextFormat("HP %d", me.hp), 20, 50, 20, LIGHTGRAY);
             if (mode == 0)
                 DrawText(TextFormat("round %d", wave), 20, 75, 20, LIGHTGRAY);
-            else { int peers = 0; for (const NetPlayer &p : netPlayers) if (p.alive && p.id != myId) peers++; const char *st = !netReady ? "connecting..." : (!myId ? "joining room..." : roomCode[0] ? TextFormat("room %s | id %d | %d other capybara(s)", roomCode, myId, peers) : "making room...");
-                DrawText(st, 20, 75, 16, LIGHTGRAY);
-            }
+            else DrawText("lan under construction - solo practice", 20, 75, 16, LIGHTGRAY);
             DrawText("dash", 20, 100, 16, LIGHTGRAY);
             DrawRectangle(66, 102, 120, 12, Fade(BLACK, 0.6f));
             DrawRectangle(66, 102, (int)(120 * (1 - dashCd / 3.0f)), 12, dashCd <= 0 ? RAYWHITE : LIGHTGRAY);
