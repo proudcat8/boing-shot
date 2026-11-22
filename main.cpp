@@ -134,6 +134,13 @@ extern "C" EMSCRIPTEN_KEEPALIVE void capyAudioUnlocked() {
 void ctext(const char *s, int y, int fs, Color c) {
     DrawText(s, GetScreenWidth()/2 - MeasureText(s, fs)/2, y, fs, c);
 }
+void ctextLines(const char *s, int y, int fs, Color c) {
+    std::istringstream in(s);
+    std::string line;
+    int row = 0;
+    while (std::getline(in, line))
+        ctext(line.c_str(), y + row++*(fs + 6), fs, c);
+}
 
 // void spawnBot(Vector3 at) {
 //     bots[numBots].pos = at;
@@ -1091,37 +1098,54 @@ void drawMinimap() {
 
 void drawMenu() {
     ClearBackground(DARKGRAY);
-    DrawText("Hail the capybara", 80, 90, 56, RAYWHITE);
-    DrawText("bounce back - bullets go brrr", 84, 165, 20, LIGHTGRAY);
+
+    // capybara bullet art, kept whole and centered behind the menu
+    float scale = (float)GetScreenHeight()/bulletTex.height;
+    float bw = bulletTex.width*scale, bh = bulletTex.height*scale;
+    DrawTextureEx(bulletTex, {GetScreenWidth()/2 - bw/2, GetScreenHeight()/2 - bh/2},
+                  0, scale, Fade(WHITE, 0.9f));
+    DrawRectangle(0, 0, GetScreenWidth(), GetScreenHeight(), Fade(BLACK, 0.42f));
+
+    const int panelW = 820, panelH = 580;
+    const int panelX = GetScreenWidth()/2 - panelW/2, panelY = 70;
+    DrawRectangle(panelX, panelY, panelW, panelH, Fade(BLACK, 0.38f));
+    DrawRectangleLines(panelX, panelY, panelW, panelH, Fade(RAYWHITE, 0.22f));
+
+    ctext("Hail the capybara", 100, 56, RAYWHITE);
+    ctext("bounce back - bullets go brrr", 170, 20, LIGHTGRAY);
+    DrawLine(GetScreenWidth()/2 - 180, 207, GetScreenWidth()/2 + 180, 207,
+             Fade(RAYWHITE, 0.30f));
+
     if (screen == S_NAME) {
-        DrawText(TextFormat("name: %s_", pname), 84, 250, 32, RAYWHITE);
-        DrawText("letters/numbers only - enter to continue", 84, 300, 20, LIGHTGRAY);
+        ctext(TextFormat("name: %s_", pname), 260, 36, RAYWHITE);
+        ctext("letters/numbers only - enter to continue", 325, 20, LIGHTGRAY);
     } else if (screen == S_DIFF) {
-        DrawText("pick difficulty", 84, 250, 36, RAYWHITE);
-        DrawText("1  chill   - slow haters, soft bullets", 84, 320, 24, RAYWHITE);
-        DrawText("2  normal  - the usual", 84, 360, 24, RAYWHITE);
-        DrawText("3  mean    - fast angry haters", 84, 400, 24, RAYWHITE);
-        DrawText("backspace - back", 84, 470, 20, LIGHTGRAY);
+        ctext("pick difficulty", 260, 36, RAYWHITE);
+        ctext("1  chill   - slow haters, soft bullets", 325, 24, RAYWHITE);
+        ctext("2  normal  - the usual", 365, 24, RAYWHITE);
+        ctext("3  mean    - fast angry haters", 405, 24, RAYWHITE);
+        ctext("backspace - back", 480, 20, LIGHTGRAY);
     } else if (screen == S_ROOM) {
 #ifdef PLATFORM_WEB
-        DrawText("lan play needs the native build", 84, 250, 32, RAYWHITE);
-        DrawText("the web build is solo only", 84, 310, 22, LIGHTGRAY);
-        DrawText("enter = back", 84, 370, 20, LIGHTGRAY);
+        ctext("lan play needs the native build", 260, 32, RAYWHITE);
+        ctext("the web build is solo only", 320, 22, LIGHTGRAY);
+        ctext("enter = back", 380, 20, LIGHTGRAY);
 #else
-        DrawText("lan capybara ffa", 84, 250, 36, RAYWHITE);
-        DrawText("enter = find a game or start one", 84, 320, 26, RAYWHITE);
-        DrawText("first player hosts. others join same wifi.", 84, 370, 20, LIGHTGRAY);
-        DrawText("no setup, no ip, no extra files", 84, 420, 18, LIGHTGRAY);
-        DrawText("esc = back", 84, 470, 20, LIGHTGRAY);
+        ctext("lan capybara ffa", 260, 36, RAYWHITE);
+        ctext("enter = find a game or start one", 325, 26, RAYWHITE);
+        ctext("first player hosts. others join same wifi.", 375, 20, LIGHTGRAY);
+        ctext("no setup, no ip, no extra files", 420, 18, LIGHTGRAY);
+        ctext("esc = back", 480, 20, LIGHTGRAY);
 #endif
     } else {
-        DrawText(TextFormat("name: %s", pname), 84, 250, 28, RAYWHITE);
-        DrawText("1  bot mode   (any name)", 84, 320, 26, RAYWHITE);
-        DrawText("2  lan mode (same wifi, first player hosts)", 84, 360, 24, RAYWHITE);
-        if (nameTaken) DrawText("NAME UNAVAILABLE - pick another name", 84, 415, 22, RED);
-        DrawText("backspace - change name", 84, 465, 20, LIGHTGRAY);
-        DrawText("WASD=move\n Left click= shoot\n R = reload\n SHIFT+WASD = dash", 84, 505, 18, LIGHTGRAY);
-        DrawText("bot mode: kill the natural enemy of capybara. Snake", 84, 580, 18, LIGHTGRAY);
+        ctext(TextFormat("name: %s", pname), 245, 28, RAYWHITE);
+        ctext("1  bot mode   (any name)", 305, 28, RAYWHITE);
+        ctext("2  lan mode (same wifi, first player hosts)", 350, 24, RAYWHITE);
+        if (nameTaken) ctext("NAME UNAVAILABLE - pick another name", 405, 22, RED);
+        ctext("backspace - change name", 455, 20, LIGHTGRAY);
+        ctextLines("WASD=move\nleft click = shoot\nR = reload\nSHIFT+WASD = dash",
+                   495, 18, LIGHTGRAY);
+        ctext("bot mode: kill the natural enemy of capybara. Snake", 605, 18, LIGHTGRAY);
     }
 }
 
