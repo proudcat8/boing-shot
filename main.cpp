@@ -72,6 +72,10 @@ void startBgm() { if (!haveBgm || bgmStarted) return; SetMusicVolume(bgm, BGM_VO
     PlayMusicStream(bgm);
     bgmStarted = true;
 }
+// nudge the bgm if it ever stops
+void updateBgm() { if (!haveBgm) return; bgm.looping = true; UpdateMusicStream(bgm);
+    if (!IsMusicStreamPlaying(bgm)) PlayMusicStream(bgm);
+}
 #ifdef PLATFORM_WEB
 extern "C" EMSCRIPTEN_KEEPALIVE void capyAudioUnlocked() { if (!haveBgm) return;
     PlayMusicStream(bgm);
@@ -477,7 +481,7 @@ int main() { InitWindow(W, H, "Hail the capybara");
     reset();
     while (!WindowShouldClose()) { float dt = fminf(GetFrameTime(), 0.05f);
         t += dt;
-        if (haveBgm) UpdateMusicStream(bgm);
+        updateBgm();
         if (screen == S_NAME) { for (int c = GetCharPressed(); c; c = GetCharPressed())
                 if ((isalnum(c) || c == '_') && strlen(pname) < 15) { size_t n = strlen(pname);
                     pname[n] = (char)c;
