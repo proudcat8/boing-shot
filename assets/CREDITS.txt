@@ -9,5 +9,5 @@ character/*.png
   note: downscaled and averaged into a tiny billboard sprite for other players
 
 bgm.mp3
-  source: supplied for the project
-  note: quiet loop under the game sounds
+  source: https://www.beepbox.co/#9n31s0k0l01e00t2ma7g0gj07r1i0o432T3v1ud8f10t5q011d35SU006050woha9999E0T1v1u52f0qwx10v311d08A1F2B4Q00b0Pf519E3b662876T1v1uaaf0q0x10kb1d35A2F0BcQ2d00Pc550E2bg7eT2v1u15f10w4qw02d03w0E0b4z4g000000010h400000000g4h00000000414g00000000p215kQvGVCzX7GNPhY_Wqf3pE--OqGcaC3aSeXdSYOsyEOpO6pui5cLl5ld5dehehgsG00000
+  note: rendered the 1 bar loop 8 times, quiet under the game sounds
