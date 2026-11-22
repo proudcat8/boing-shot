@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CACHE="${WEB_BUILD_CACHE:-/tmp/opencode/hail-cap-web}"
+CACHE="${WEB_BUILD_CACHE:-$HOME/.local/share/opencode/hail-cap-web}"
 RAYLIB_TAG="${RAYLIB_TAG:-6.2}"
 RAYLIB_SRC="${RAYLIB_SRC:-$CACHE/raylib-$RAYLIB_TAG}"
 RAYLIB_BUILD="${RAYLIB_BUILD:-$CACHE/raylib-$RAYLIB_TAG-build}"
@@ -11,7 +11,7 @@ DIST="$ROOT/web/dist"
 OUT_ZIP="$ROOT/hail-the-capybara-web.zip"
 
 if ! command -v emcc >/dev/null 2>&1; then
-  EMSDK="${EMSDK:-/tmp/opencode/emsdk_install}"
+  EMSDK="${EMSDK:-$HOME/.local/share/opencode/emsdk}"
   if [[ -f "$EMSDK/emsdk_env.sh" ]]; then
     source "$EMSDK/emsdk_env.sh" >/dev/null
   fi
@@ -64,6 +64,7 @@ FILES=(
   "assets/shoot.mp3"
   "assets/reload.mp3"
   "assets/dash.mp3"
+  "assets/bgm.mp3"
   "assets/snake/Snake.obj"
   "assets/snake/Snake.mtl"
   "assets/snake/textures/S-Skin_03.png"

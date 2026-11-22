@@ -52,6 +52,8 @@ Pickup pickups[3];
 NetPlayer netPlayers[64];
 Camera3D cam;
 Sound sHit, sKill, sJump, sShoot, sReload, sDash;
+Music bgm;
+bool haveBgm = false;
 Texture2D pointsTex, bulletTex, charTex;
 Model snakeModel;
 Color outfit[6];
@@ -1119,6 +1121,13 @@ int main() {
     sShoot = LoadSound("assets/shoot.mp3");
     sReload = LoadSound("assets/reload.mp3");
     sDash = LoadSound("assets/dash.mp3");
+    if (FileExists("assets/bgm.mp3")) {
+        bgm = LoadMusicStream("assets/bgm.mp3");
+        bgm.looping = true;
+        SetMusicVolume(bgm, 0.12f);
+        PlayMusicStream(bgm);
+        haveBgm = true;
+    }
     pointsTex = LoadTexture("assets/points.png");
     bulletTex = LoadTexture("assets/capybara_bullet.png");
     makeCharTex();
@@ -1130,6 +1139,7 @@ int main() {
     while (!WindowShouldClose()) {
         float dt = fminf(GetFrameTime(), 0.05f);
         t += dt;
+        if (haveBgm) UpdateMusicStream(bgm);
 
         if (screen == S_NAME) {
             for (int c = GetCharPressed(); c; c = GetCharPressed())
@@ -1228,6 +1238,7 @@ int main() {
         } else drawMenu();
         EndDrawing();
     }
+    if (haveBgm) UnloadMusicStream(bgm);
     UnloadSound(sHit); UnloadSound(sKill); UnloadSound(sJump);
     UnloadSound(sShoot); UnloadSound(sReload); UnloadSound(sDash);
     UnloadModel(snakeModel);
