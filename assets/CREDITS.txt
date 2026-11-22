@@ -6,7 +6,7 @@ capybara_bullet.png
 
 character/*.png
   source: base-color textures supplied for the project
-  note: downscaled and averaged into a tiny billboard sprite
+  note: downscaled and averaged into a tiny billboard sprite for other players
 
 bgm.mp3
   source: supplied for the project

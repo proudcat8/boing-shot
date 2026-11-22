@@ -17,7 +17,7 @@ It writes:
 - `web/dist/index.html` plus the `.js`, `.wasm` and `.data` files
 - `hail-the-capybara-web.zip` with `index.html` at the zip root, ready for itch.io
 
-The zip only carries what the game uses: the capybara art, character pngs, sounds, music, and credits.
+The build only preloads files the game actually uses at runtime. The FBX source, JPG originals, and zip/rar archives stay out of the web download.
 
 ## Test it locally
 
@@ -31,9 +31,11 @@ Then open http://localhost:8000.
 
 Click the game or press a key once so the browser gives it mouse lock and audio. The BGM is quiet under the SFX and starts on the name screen as soon as the browser allows sound. Press `esc` to give the mouse back.
 
-## Game modes
+## Multiplayer
 
-Solo only. No enemies spawn and there is no LAN mode. You just shoot bullets and watch them bounce.
+The web build is solo only. Browsers cannot open a listening socket, so they cannot host a LAN relay.
+
+Pick `2` lan mode in the web build and it will tell you to use the native build. LAN FFA works in the native game: first player hosts, friends on the same wifi join automatically.
 
 ## Upload to itch.io
 
